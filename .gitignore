@@ -1,0 +1,44 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+
+# VSCode settings
+.vscode/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# FreeCAD temp/build/project files
+*.FCStd1
+*.FCBak
+*.pyc~
+*.fcmacro~
+*.FCStd.autosave
+
+# Logs and temporary output
+*.log
+*.tmp
+*.swp
+
+# OS/terminal clutter
+*.~undo-tree~
+*~
+*.bak
+
+# JetBrains IDEs (e.g., PyCharm)
+.idea/
+
+# Shell history in case of debug
+run.sh~
+
+# Env files
+.env
