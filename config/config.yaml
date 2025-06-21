@@ -1,0 +1,8 @@
+api_key: "your_api_key_here"
+freecad_api_url: "http://localhost:8080"
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+command_timeout: 30
+log_level: "INFO"
