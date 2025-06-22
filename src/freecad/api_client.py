@@ -71,3 +71,6 @@ class FreeCADAPIClient:
             "objects": objects_info,
             "object_count": len(self.document.Objects)
         }
+
+connect = FreeCADAPIClient().connect()
+
