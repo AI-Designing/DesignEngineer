@@ -2,10 +2,11 @@ import sys
 import os
 import subprocess
 import time
-from freecad.api_client import FreeCADAPIClient
-from freecad.command_executor import CommandExecutor
+# from freecad.api_client import FreeCADAPIClient
+# from freecad.command_executor import CommandExecutor
 import FreeCAD
 import Part
+import Mesh
 
 # Add the current directory to Python path to import our modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -18,50 +19,50 @@ def main():
     try:
         # Initialize the API client
         print("Initializing FreeCAD API client...")
-        api_client = FreeCADAPIClient()
+        # api_client = FreeCADAPIClient()
         
         # Start FreeCAD application
         print("Starting FreeCAD application...")
-        freecad_process = subprocess.Popen(['freecad'])
+        # freecad_process = subprocess.Popen(['freecad'])
         
         # Wait a moment for FreeCAD to start
         time.sleep(3)
         
         # Establish connection
         print("Establishing connection to FreeCAD...")
-        if api_client.connect():
-            print("✓ Successfully connected to FreeCAD API")
+        # if api_client.connect():
+        #     print("✓ Successfully connected to FreeCAD API")
             
             # Initialize command executor
-            command_executor = CommandExecutor(api_client)
+            # command_executor = CommandExecutor(api_client)
             
             # Execute a simple test command
-            print("Executing test command...")
-            test_command = "print('Hello from FreeCAD!')"
-            result = command_executor.execute(test_command)
+            # print("Executing test command...")
+            # test_command = "print('Hello from FreeCAD!')"
+            # result = command_executor.execute(test_command)
             
-            print(f"Command result: {result}")
+            # print(f"Command result: {result}")
             
             # Execute commands step by step
-            print("Creating a simple box...")
+            # print("Creating a simple box...")
             
             # Step 1: Create document and box
-            step1 = "doc = FreeCAD.newDocument('TestDocument'); box = doc.addObject('Part::Box', 'TestBox'); box.Length = 10; box.Width = 10; box.Height = 10; doc.recompute(); print('Box created successfully!')"
-            result1 = command_executor.execute(step1)
-            print(f"Step 1 result: {result1}")
+            # step1 = "doc = FreeCAD.newDocument('TestDocument'); box = doc.addObject('Part::Box', 'TestBox'); box.Length = 10; box.Width = 10; box.Height = 10; doc.recompute(); print('Box created successfully!')"
+            # result1 = command_executor.execute(step1)
+            # print(f"Step 1 result: {result1}")
             
             # Step 2: Save document
-            step2 = "import os; doc = FreeCAD.getDocument('TestDocument'); save_path = os.path.expanduser('~/test_box.FCStd'); doc.saveAs(save_path); print(f'Document saved to: {save_path}')"
-            result2 = command_executor.execute(step2)
-            print(f"Step 2 result: {result2}")
+            # step2 = "import os; doc = FreeCAD.getDocument('TestDocument'); save_path = os.path.expanduser('~/test_box.FCStd'); doc.saveAs(save_path); print(f'Document saved to: {save_path}')"
+            # result2 = command_executor.execute(step2)
+            # print(f"Step 2 result: {result2}")
             
             # Step 3: Export STEP file
-            step3 = "import Part; import os; doc = FreeCAD.getDocument('TestDocument'); box = doc.getObject('TestBox'); step_path = os.path.expanduser('~/test_box.step'); Part.export([box], step_path); print(f'STEP file exported to: {step_path}')"
-            result3 = command_executor.execute(step3)
-            print(f"Step 3 result: {result3}")
+            # step3 = "import Part; import os; doc = FreeCAD.getDocument('TestDocument'); box = doc.getObject('TestBox'); step_path = os.path.expanduser('~/test_box.step'); Part.export([box], step_path); print(f'STEP file exported to: {step_path}')"
+            # result3 = command_executor.execute(step3)
+            # print(f"Step 3 result: {result3}")
             
-        else:
-            print("✗ Failed to connect to FreeCAD API")
+        # else:
+        #     print("✗ Failed to connect to FreeCAD API")
             
     except Exception as e:
         print(f"Error: {e}")
@@ -69,10 +70,61 @@ def main():
     finally:
         # Clean up
         try:
-            api_client.disconnect()
+            # api_client.disconnect()
             print("Disconnected from FreeCAD API")
         except:
             pass
 
+def test_create_cylinder():
+    """
+    Test function to create a cylinder, save it as .FCStd, and export it as .stl
+    """
+    import FreeCAD
+    import Part
+    import Mesh
+    import os
+
+    try:
+        # Create a new document
+        print("Creating a new FreeCAD document...")
+        doc = FreeCAD.newDocument("TestCylinderDocument")
+
+        # Create a cylinder in the Part workbench
+        print("Creating a cylinder...")
+        cylinder = doc.addObject("Part::Cylinder", "MyCylinder")
+        cylinder.Height = 100.0  # Set height to 10mm
+        cylinder.Radius = 20.0   # Set radius to 2mm
+        doc.recompute()  # Update the document
+
+        # Define file paths
+        fcstd_file = os.path.expanduser("~/cylinder.FCStd")
+        stl_file = os.path.expanduser("~/cylinder.stl")
+
+        # Save the document as .FCStd
+        print("Saving the FreeCAD document...")
+        doc.saveAs(fcstd_file)
+        print(f"Saved FreeCAD document to: {fcstd_file}")
+
+        # Export the cylinder as .stl
+        print("Exporting the cylinder to STL format...")
+        objects = [doc.getObject("MyCylinder")]
+        Mesh.export(objects, stl_file)
+        print(f"Exported cylinder to: {stl_file}")
+
+    except Exception as e:
+        print(f"Error during cylinder creation and export: {e}")
+
+    finally:
+        # Clean up
+        try:
+            del objects
+            doc.close()
+            print("Cleaned up FreeCAD document.")
+        except:
+            pass
+
+# Call the test function in the main function
 if __name__ == "__main__":
     main()
+    print("\nRunning cylinder creation test...")
+    test_create_cylinder()
