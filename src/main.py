@@ -11,14 +11,28 @@ def main():
     
     # Check command line arguments
     if len(sys.argv) > 1:
-        command = " ".join(sys.argv[1:])
-        print(f"Executing command: {command}")
+        first_arg = sys.argv[1]
         
-        cli = FreeCADCLI(use_headless=True)
-        if cli.initialize():
-            cli.execute_command(command)
+        # Check for analysis command
+        if first_arg == "analyze" and len(sys.argv) > 2:
+            file_path = sys.argv[2]
+            print(f"Analyzing file: {file_path}")
+            
+            cli = FreeCADCLI(use_headless=True)
+            if cli.initialize():
+                cli.analyze_state(file_path)
+        else:
+            # Regular command execution
+            command = " ".join(sys.argv[1:])
+            print(f"Executing command: {command}")
+            
+            cli = FreeCADCLI(use_headless=True)
+            if cli.initialize():
+                cli.execute_command(command)
     else:
         # Start interactive mode
+        print("Starting interactive mode...")
+        print("Type 'help' for available commands")
         cli = FreeCADCLI(use_headless=True)
         cli.interactive_mode()
 
