@@ -1,11 +1,13 @@
 import re
 import json
 from typing import Dict, Any, Optional
+from .state_manager import FreeCADStateAnalyzer
 
 class CommandExecutor:
     def __init__(self, api_client=None, state_manager=None):
         self.api_client = api_client
         self.state_manager = state_manager
+        self.state_analyzer = FreeCADStateAnalyzer(api_client)
         self.command_history = []
 
     def execute(self, command):
@@ -27,6 +29,18 @@ class CommandExecutor:
                     self.state_manager.update_state(current_state)
                 except Exception as e:
                     print(f"Warning: Failed to update state: {e}")
+            
+            # Perform state analysis after successful command execution
+            if response.get("status") == "success":
+                try:
+                    analysis = self.state_analyzer.analyze_document_state()
+                    if "analysis" in analysis:
+                        print("\n" + "="*50)
+                        print("📊 Post-Command State Analysis")
+                        print("="*50)
+                        self.state_analyzer.print_analysis_results(analysis)
+                except Exception as e:
+                    print(f"Warning: State analysis failed: {e}")
             
             return response
         else:
