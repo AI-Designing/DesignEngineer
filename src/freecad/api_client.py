@@ -224,10 +224,22 @@ print(f"STATE: {json.dumps(state)}")
         command = f"""
 import os
 save_path = os.path.expanduser("{file_path}")
+save_path = os.path.abspath(save_path)
 doc.saveAs(save_path)
+print(f"SAVED_TO: {{save_path}}")
 print(f"Document saved to: {{save_path}}")
 """
-        return self._execute_via_subprocess(command)
+        result = self._execute_via_subprocess(command)
+        
+        # Extract the saved path from the output
+        if result.get("status") == "success":
+            for line in result["message"].split('\n'):
+                if line.startswith("SAVED_TO: "):
+                    saved_path = line.replace("SAVED_TO: ", "").strip()
+                    result["saved_path"] = saved_path
+                    break
+        
+        return result
 
     def export_stl(self, objects, file_path):
         """Export objects to STL format"""
@@ -241,5 +253,21 @@ if objects_to_export:
     print(f"STL exported to: {{export_path}}")
 else:
     print("No valid objects found for export")
+"""
+        return self._execute_via_subprocess(command)
+
+    def get_file_info(self):
+        """Get information about file paths and current working directory"""
+        command = """
+import os
+cwd = os.getcwd()
+home = os.path.expanduser("~")
+print(f"CURRENT_DIR: {cwd}")
+print(f"HOME_DIR: {home}")
+print(f"DOCUMENT_NAME: {doc.Name}")
+if hasattr(doc, 'FileName') and doc.FileName:
+    print(f"DOCUMENT_PATH: {doc.FileName}")
+else:
+    print("DOCUMENT_PATH: Not saved yet")
 """
         return self._execute_via_subprocess(command)

@@ -77,6 +77,20 @@ class FreeCADCLI:
                     script_path = user_input[7:].strip()
                     self.execute_script(script_path)
                 
+                elif user_input.lower() in ['fileinfo', 'files', 'location']:
+                    self.show_file_info()
+                
+                elif user_input.lower() in ['saveinfo', 'saves', 'autosave']:
+                    self.show_save_info()
+                
+                elif user_input.startswith('save '):
+                    # Manual save command
+                    filename = user_input[5:].strip()
+                    if filename:
+                        self.command_executor.manual_save(filename)
+                    else:
+                        self.command_executor.manual_save()
+                
                 else:
                     self.execute_command(user_input)
                     
@@ -179,6 +193,9 @@ Available Commands:
     - analyze <file.FCStd>       Analyze specific FreeCAD file
     - history                    Show command history
     - script <path>             Execute script file
+    - fileinfo                  Show file locations and paths
+    - saveinfo                  Show auto-save information and file locations
+    - save [filename]           Manually save document (auto-save also enabled)
     - help                      Show this help
     - quit                      Exit
 
@@ -192,6 +209,59 @@ Available Commands:
     ✅ No Errors                Check for document errors
 """
         print(help_text)
+
+    def show_file_info(self):
+        """Show current file and directory information"""
+        print("\nFile Location Information:")
+        print("=" * 30)
+        try:
+            result = self.api_client.get_file_info()
+            if result["status"] == "success":
+                for line in result["message"].split('\n'):
+                    if line.startswith("CURRENT_DIR: "):
+                        print(f"Working Directory: {line.replace('CURRENT_DIR: ', '')}")
+                    elif line.startswith("HOME_DIR: "):
+                        print(f"Home Directory: {line.replace('HOME_DIR: ', '')}")
+                    elif line.startswith("DOCUMENT_NAME: "):
+                        print(f"Document Name: {line.replace('DOCUMENT_NAME: ', '')}")
+                    elif line.startswith("DOCUMENT_PATH: "):
+                        path = line.replace('DOCUMENT_PATH: ', '')
+                        if path == "Not saved yet":
+                            print(f"Document Status: {path}")
+                            print("Default save location: Current working directory")
+                        else:
+                            print(f"Document Path: {path}")
+            else:
+                print(f"Error getting file info: {result['message']}")
+        except Exception as e:
+            print(f"Error: {e}")
+
+    def show_save_info(self):
+        """Show information about saved files"""
+        if not self.command_executor:
+            print("❌ Command executor not initialized")
+            return
+            
+        save_info = self.command_executor.get_save_info()
+        print("\n💾 File Save Information:")
+        print("=" * 40)
+        print(f"Auto-save enabled: {'✅ Yes' if save_info['auto_save_enabled'] else '❌ No'}")
+        print(f"Save counter: {save_info['save_counter']}")
+        
+        if save_info['last_saved_path']:
+            print(f"Last saved to: {save_info['last_saved_path']}")
+            # Check if file exists
+            if os.path.exists(save_info['last_saved_path']):
+                file_size = os.path.getsize(save_info['last_saved_path'])
+                print(f"File size: {file_size} bytes")
+                mod_time = os.path.getmtime(save_info['last_saved_path'])
+                import datetime
+                mod_time_str = datetime.datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M:%S")
+                print(f"Last modified: {mod_time_str}")
+            else:
+                print("⚠️  File no longer exists at saved location")
+        else:
+            print("No files saved yet")
 
 def main():
     parser = argparse.ArgumentParser(description="FreeCAD Command Line Interface")

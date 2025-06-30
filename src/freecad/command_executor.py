@@ -1,14 +1,18 @@
 import re
 import json
+import os
 from typing import Dict, Any, Optional
 from .state_manager import FreeCADStateAnalyzer
 
 class CommandExecutor:
-    def __init__(self, api_client=None, state_manager=None):
+    def __init__(self, api_client=None, state_manager=None, auto_save=True):
         self.api_client = api_client
         self.state_manager = state_manager
         self.state_analyzer = FreeCADStateAnalyzer(api_client)
         self.command_history = []
+        self.auto_save = auto_save
+        self.save_counter = 0
+        self.last_saved_path = None
 
     def execute(self, command):
         """Execute a FreeCAD command"""
@@ -22,10 +26,19 @@ class CommandExecutor:
             # Execute the command
             response = self.api_client.execute_command(command)
             
+            # Auto-save if command was successful and auto-save is enabled
+            if self.auto_save and response.get("status") == "success":
+                save_result = self._auto_save_document()
+                if save_result:
+                    print(f"\n💾 Document auto-saved to: {save_result}")
+                    self.last_saved_path = save_result
+            
             # Update state if state manager is available
             if self.state_manager and response.get("status") == "success":
                 try:
                     current_state = self.api_client.get_document_state()
+                    # Add file location to state
+                    current_state["last_saved_path"] = self.last_saved_path
                     self.state_manager.update_state(current_state)
                 except Exception as e:
                     print(f"Warning: Failed to update state: {e}")
@@ -191,6 +204,65 @@ print("Sphere created: {name}")
     def get_command_history(self):
         """Get command execution history"""
         return self.command_history.copy()
+
+    def _auto_save_document(self):
+        """Auto-save the document with incremental naming"""
+        try:
+            # Generate auto-save filename
+            self.save_counter += 1
+            timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"freecad_auto_save_{timestamp}_{self.save_counter:03d}.FCStd"
+            
+            # Get current working directory for the save path
+            save_path = os.path.join(os.getcwd(), filename)
+            
+            # Save the document
+            result = self.api_client.save_document(save_path)
+            if result.get("status") == "success":
+                # Return the actual saved path from the API response
+                return result.get("saved_path", save_path)
+            else:
+                print(f"Warning: Auto-save failed: {result.get('message', 'Unknown error')}")
+                return None
+        except Exception as e:
+            print(f"Warning: Auto-save failed: {e}")
+            return None
+
+    def manual_save(self, filename=None):
+        """Manually save the document with optional custom filename"""
+        try:
+            if filename:
+                # Use provided filename
+                if not filename.endswith('.FCStd'):
+                    filename += '.FCStd'
+                save_path = os.path.abspath(filename)
+            else:
+                # Generate default filename
+                timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"freecad_manual_save_{timestamp}.FCStd"
+                save_path = os.path.join(os.getcwd(), filename)
+            
+            result = self.api_client.save_document(save_path)
+            if result.get("status") == "success":
+                actual_path = result.get("saved_path", save_path)
+                self.last_saved_path = actual_path
+                print(f"✅ Document saved to: {actual_path}")
+                return actual_path
+            else:
+                print(f"❌ Save failed: {result.get('message', 'Unknown error')}")
+                return None
+        except Exception as e:
+            print(f"❌ Save failed: {e}")
+            return None
+
+    def get_save_info(self):
+        """Get information about saved files"""
+        info = {
+            "last_saved_path": self.last_saved_path,
+            "save_counter": self.save_counter,
+            "auto_save_enabled": self.auto_save
+        }
+        return info
 
     # Enhanced predefined commands
     def create_box(self, length=10, width=10, height=10, name="Box"):

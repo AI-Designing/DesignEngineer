@@ -33,6 +33,7 @@ def main():
         # Start interactive mode
         print("Starting interactive mode...")
         print("Type 'help' for available commands")
+        print("💾 Auto-save is ENABLED - files will be saved automatically after each command")
         cli = FreeCADCLI(use_headless=True)
         cli.interactive_mode()
 
