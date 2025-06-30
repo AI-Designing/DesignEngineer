@@ -4,6 +4,7 @@ import os
 import argparse
 from freecad.api_client import FreeCADAPIClient
 from freecad.command_executor import CommandExecutor
+from freecad.state_manager import FreeCADStateAnalyzer
 from redis.client import RedisClient
 from redis.state_cache import StateCache
 
@@ -12,6 +13,7 @@ class FreeCADCLI:
         self.api_client = FreeCADAPIClient(use_headless=use_headless)
         self.command_executor = None
         self.state_cache = None
+        self.state_analyzer = None
         
         # Try to initialize Redis for state management
         try:
@@ -29,6 +31,7 @@ class FreeCADCLI:
         if self.api_client.connect():
             print("✓ FreeCAD connection established")
             self.command_executor = CommandExecutor(self.api_client, self.state_cache)
+            self.state_analyzer = FreeCADStateAnalyzer(self.api_client)
             return True
         else:
             print("✗ Failed to connect to FreeCAD")
@@ -59,6 +62,13 @@ class FreeCADCLI:
                 
                 elif user_input.lower() == 'state':
                     self.show_state()
+                
+                elif user_input.lower() == 'analyze':
+                    self.analyze_state()
+                
+                elif user_input.startswith('analyze '):
+                    doc_path = user_input[8:].strip()
+                    self.analyze_state(doc_path)
                 
                 elif user_input.lower() == 'history':
                     self.show_history()
@@ -121,6 +131,26 @@ class FreeCADCLI:
         for obj in state.get('objects', []):
             print(f"  - {obj['name']} ({obj['type']})")
 
+    def analyze_state(self, doc_path=None):
+        """Perform comprehensive state analysis"""
+        if not self.state_analyzer:
+            print("✗ State analyzer not available")
+            return
+        
+        print("🔄 Analyzing FreeCAD document state...")
+        
+        try:
+            analysis = self.state_analyzer.analyze_document_state(doc_path)
+            self.state_analyzer.print_analysis_results(analysis)
+            
+            # Cache the analysis results if Redis is available
+            if self.state_cache and "analysis" in analysis:
+                self.state_cache.cache_state(analysis, "last_analysis")
+                print("\n💾 Analysis results cached")
+                
+        except Exception as e:
+            print(f"✗ Analysis failed: {e}")
+
     def show_history(self):
         """Show command history"""
         history = self.command_executor.get_command_history()
@@ -144,11 +174,22 @@ Available Commands:
     - !box.Length = 10
     
   CLI Commands:
-    - state                      Show document state
+    - state                      Show basic document state
+    - analyze                    Perform comprehensive state analysis
+    - analyze <file.FCStd>       Analyze specific FreeCAD file
     - history                    Show command history
     - script <path>             Execute script file
     - help                      Show this help
     - quit                      Exit
+
+  State Analysis Features:
+    ✅ Pad Created              Check if document has Pad objects
+    ✅ Face Available           Check if faces are available for operations
+    ✅ Active Body              Check if there's an active PartDesign body
+    ✅ Sketch Plane Ready       Check if sketches are mapped to planes
+    ✅ Constrained Base Sketch  Check if sketches are fully constrained
+    ✅ Safe References          Check external reference integrity
+    ✅ No Errors                Check for document errors
 """
         print(help_text)
 
@@ -157,13 +198,19 @@ def main():
     parser.add_argument('--gui', action='store_true', help='Use FreeCAD GUI instead of headless mode')
     parser.add_argument('--script', help='Execute a specific script file')
     parser.add_argument('--command', help='Execute a single command and exit')
+    parser.add_argument('--analyze', help='Analyze a specific FreeCAD file and exit')
+    parser.add_argument('--auto-analyze', action='store_true', help='Automatically analyze state after each command')
     
     args = parser.parse_args()
     
     # Initialize CLI
     cli = FreeCADCLI(use_headless=not args.gui)
     
-    if args.script:
+    if args.analyze:
+        # Analysis mode
+        if cli.initialize():
+            cli.analyze_state(args.analyze)
+    elif args.script:
         # Execute script mode
         if cli.initialize():
             cli.execute_script(args.script)
