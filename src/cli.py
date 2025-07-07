@@ -5,8 +5,8 @@ import argparse
 from freecad.api_client import FreeCADAPIClient
 from freecad.command_executor import CommandExecutor
 from freecad.state_manager import FreeCADStateAnalyzer
-from redis.client import RedisClient
-from redis.state_cache import StateCache
+from redis_utils.client import RedisClient
+from redis_utils.state_cache import StateCache
 
 class FreeCADCLI:
     def __init__(self, use_headless=True):
