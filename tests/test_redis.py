@@ -1,6 +1,6 @@
 import unittest
-from src.redis.client import RedisClient
-from src.redis.state_cache import StateCache
+from src.redis_utils.client import RedisClient
+from src.redis_utils.state_cache import StateCache
 
 class TestStateCache(unittest.TestCase):
     def setUp(self):
