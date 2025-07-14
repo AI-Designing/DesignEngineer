@@ -3,6 +3,7 @@ import json
 import os
 from typing import Dict, Any, Optional
 from .state_manager import FreeCADStateAnalyzer
+from llm.client import LLMClient
 
 class CommandExecutor:
     def __init__(self, api_client=None, state_manager=None, auto_save=True):
@@ -13,6 +14,7 @@ class CommandExecutor:
         self.auto_save = auto_save
         self.save_counter = 0
         self.last_saved_path = None
+        self.llm_client = LLMClient()
 
     def execute(self, command):
         """Execute a FreeCAD command"""
@@ -68,31 +70,21 @@ class CommandExecutor:
             return {"status": "error", "message": "Could not parse natural language command"}
 
     def parse_natural_language(self, nl_command: str) -> Optional[str]:
-        """Basic natural language parsing (can be enhanced with LLM later)"""
+        """Enhanced: Use rules, then LLM if rules fail"""
         nl_command = nl_command.lower().strip()
-        
-        # Box creation patterns
+        # Rule-based parsing
         if "create" in nl_command and "box" in nl_command:
-            # Extract dimensions if provided
             dimensions = self._extract_dimensions(nl_command)
             return self._generate_box_command(**dimensions)
-        
-        # Cylinder creation patterns
         elif "create" in nl_command and "cylinder" in nl_command:
             dimensions = self._extract_cylinder_dimensions(nl_command)
             return self._generate_cylinder_command(**dimensions)
-        
-        # Sphere creation patterns
         elif "create" in nl_command and "sphere" in nl_command:
             radius = self._extract_sphere_radius(nl_command)
             return self._generate_sphere_command(radius)
-        
-        # Save document
         elif "save" in nl_command and "document" in nl_command:
             filename = self._extract_filename(nl_command, "fcstd")
             return f'doc.saveAs("{filename}")'
-        
-        # Export STL
         elif "export" in nl_command and "stl" in nl_command:
             filename = self._extract_filename(nl_command, "stl")
             return f'''
@@ -102,7 +94,11 @@ if objects:
     Mesh.export(objects, "{filename}")
     print("STL exported successfully")
 '''
-        
+        # If no rule matched, use LLM
+        if self.llm_client:
+            # Optionally, pass current state for context
+            state = self.api_client.get_document_state() if self.api_client else None
+            return self.llm_client.generate_command(nl_command, state)
         return None
 
     def _extract_dimensions(self, text: str) -> Dict[str, float]:
