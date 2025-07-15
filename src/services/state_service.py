@@ -10,9 +10,9 @@ import time
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 
-from redis_utils.client import RedisClient
-from redis_utils.state_cache import StateCache
-from freecad.state_manager import FreeCADStateAnalyzer
+from ..redis_utils.client import RedisClient
+from ..redis_utils.state_cache import StateCache
+from ..freecad.state_manager import FreeCADStateAnalyzer
 
 class FreeCADStateService:
     """

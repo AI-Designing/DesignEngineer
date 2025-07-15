@@ -246,3 +246,7 @@ class StateCache:
                 if not doc_part.isdigit() and len(doc_part) > 8:  # Not timestamp or UUID
                     documents.append(doc_part.replace("_", " "))
         return documents
+    
+    def update_state(self, state_data: Dict[str, Any], state_key: str = None) -> str:
+        """Update state data in Redis (alias for cache_state)"""
+        return self.cache_state(state_data, state_key)
