@@ -9,12 +9,13 @@ from redis_utils.client import RedisClient
 from redis_utils.state_cache import StateCache
 
 class FreeCADCLI:
-    def __init__(self, use_headless=True):
+    def __init__(self, use_headless=True, llm_provider="openai", llm_api_key=None):
         self.api_client = FreeCADAPIClient(use_headless=use_headless)
         self.command_executor = None
         self.state_cache = None
         self.state_analyzer = None
-        
+        self.llm_provider = llm_provider
+        self.llm_api_key = llm_api_key
         # Try to initialize Redis for state management
         try:
             redis_client = RedisClient()
@@ -30,7 +31,7 @@ class FreeCADCLI:
         
         if self.api_client.connect():
             print("✓ FreeCAD connection established")
-            self.command_executor = CommandExecutor(self.api_client, self.state_cache)
+            self.command_executor = CommandExecutor(self.api_client, self.state_cache, llm_provider=self.llm_provider, llm_api_key=self.llm_api_key)
             self.state_analyzer = FreeCADStateAnalyzer(self.api_client)
             return True
         else:
@@ -270,11 +271,12 @@ def main():
     parser.add_argument('--command', help='Execute a single command and exit')
     parser.add_argument('--analyze', help='Analyze a specific FreeCAD file and exit')
     parser.add_argument('--auto-analyze', action='store_true', help='Automatically analyze state after each command')
-    
+    parser.add_argument('--llm-provider', choices=['openai', 'google'], default='openai', help='LLM provider to use (openai or google)')
+    parser.add_argument('--llm-api-key', help='API key for the selected LLM provider')
     args = parser.parse_args()
     
     # Initialize CLI
-    cli = FreeCADCLI(use_headless=not args.gui)
+    cli = FreeCADCLI(use_headless=not args.gui, llm_provider=args.llm_provider, llm_api_key=args.llm_api_key)
     
     if args.analyze:
         # Analysis mode
