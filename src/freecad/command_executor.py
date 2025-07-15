@@ -6,7 +6,7 @@ from .state_manager import FreeCADStateAnalyzer
 from llm.client import LLMClient
 
 class CommandExecutor:
-    def __init__(self, api_client=None, state_manager=None, auto_save=True):
+    def __init__(self, api_client=None, state_manager=None, auto_save=True, llm_provider="openai", llm_api_key=None):
         self.api_client = api_client
         self.state_manager = state_manager
         self.state_analyzer = FreeCADStateAnalyzer(api_client)
@@ -14,7 +14,8 @@ class CommandExecutor:
         self.auto_save = auto_save
         self.save_counter = 0
         self.last_saved_path = None
-        self.llm_client = LLMClient()
+        # llm_provider: 'openai' or 'google', llm_api_key: API key for the provider
+        self.llm_client = LLMClient(api_key=llm_api_key, provider=llm_provider)
 
     def execute(self, command):
         """Execute a FreeCAD command"""
@@ -97,8 +98,17 @@ if objects:
         # If no rule matched, use LLM
         if self.llm_client:
             # Optionally, pass current state for context
-            state = self.api_client.get_document_state() if self.api_client else None
-            return self.llm_client.generate_command(nl_command, state)
+            try:
+                state = self.api_client.get_document_state() if self.api_client else None
+                return self.llm_client.generate_command(nl_command, state)
+            except Exception as e:
+                print(f"[CommandExecutor] Error getting state or generating command: {e}")
+                # Fall back to generating without state
+                try:
+                    return self.llm_client.generate_command(nl_command, None)
+                except Exception as fallback_error:
+                    print(f"[CommandExecutor] Fallback also failed: {fallback_error}")
+                    return None
         return None
 
     def _extract_dimensions(self, text: str) -> Dict[str, float]:
