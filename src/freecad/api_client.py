@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 import json
+import time
 
 # Add FreeCAD paths
 sys.path.append("/home/vansh5632/Downloads/squashfs-root/usr/lib/")
@@ -23,6 +24,8 @@ class FreeCADAPIClient:
         self.document = None
         self.use_headless = use_headless
         self.freecad_executable = "freecadcmd" if use_headless else "freecad"
+        self.freecad_gui_executable = "freecad"  # GUI executable
+        self.last_saved_document = None
 
     def connect(self):
         """Connect to FreeCAD and create/open a document"""
@@ -237,6 +240,7 @@ print(f"Document saved to: {{save_path}}")
                 if line.startswith("SAVED_TO: "):
                     saved_path = line.replace("SAVED_TO: ", "").strip()
                     result["saved_path"] = saved_path
+                    self.last_saved_document = saved_path  # Store the saved document path
                     break
         
         return result
@@ -271,3 +275,107 @@ else:
     print("DOCUMENT_PATH: Not saved yet")
 """
         return self._execute_via_subprocess(command)
+
+    def open_in_freecad_gui(self, file_path=None):
+        """Open the document in FreeCAD GUI with objects visible"""
+        if not file_path:
+            file_path = self.last_saved_document
+        
+        print(f"[DEBUG] Attempting to open in GUI:")
+        print(f"[DEBUG] - file_path parameter: {file_path}")
+        print(f"[DEBUG] - last_saved_document: {self.last_saved_document}")
+        
+        if not file_path:
+            print("❌ No file path provided and no last saved document")
+            return {"status": "error", "message": "No valid document path"}
+        
+        if not os.path.exists(file_path):
+            print(f"❌ File does not exist: {file_path}")
+            return {"status": "error", "message": f"File does not exist: {file_path}"}
+        
+        try:
+            print(f"🖥️  Opening document in FreeCAD GUI: {file_path}")
+            
+            # Create a script to open the document and fit all objects in view
+            script_content = f"""
+import FreeCAD
+import FreeCADGui
+import time
+
+# Open the document
+doc = FreeCAD.openDocument(r"{file_path}")
+FreeCAD.setActiveDocument(doc.Name)
+
+# Give some time for the document to load
+time.sleep(1)
+
+# Show all objects and fit them in view
+if hasattr(FreeCADGui, 'ActiveDocument') and FreeCADGui.ActiveDocument:
+    # Make sure all objects are visible
+    for obj in doc.Objects:
+        if hasattr(obj, 'ViewObject') and obj.ViewObject:
+            obj.ViewObject.Visibility = True
+    
+    # Fit all objects in view
+    FreeCADGui.SendMsgToActiveView("ViewFit")
+    
+    # Switch to a good default view (isometric)
+    FreeCADGui.ActiveDocument.activeView().viewIsometric()
+    
+    print("SUCCESS: Document opened in FreeCAD GUI with objects visible")
+else:
+    print("WARNING: GUI not available")
+"""
+            
+            # Write the script to a temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as temp_file:
+                temp_file.write(script_content)
+                temp_script_path = temp_file.name
+            
+            # Launch FreeCAD GUI with the script
+            result = subprocess.Popen([
+                self.freecad_gui_executable, 
+                temp_script_path
+            ], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            text=True
+            )
+            
+            # Give FreeCAD time to start
+            time.sleep(2)
+            
+            # Clean up the temporary script
+            try:
+                os.unlink(temp_script_path)
+            except:
+                pass
+            
+            print("✅ FreeCAD GUI launched successfully")
+            return {
+                "status": "success", 
+                "message": f"Document opened in FreeCAD GUI: {file_path}",
+                "process_id": result.pid
+            }
+            
+        except Exception as e:
+            print(f"❌ Failed to open document in FreeCAD GUI: {e}")
+            return {"status": "error", "message": f"Failed to open in GUI: {e}"}
+    
+    def open_current_document_in_gui(self):
+        """Open the current document in FreeCAD GUI"""
+        if not self.last_saved_document:
+            print("⚠️  No saved document to open. Creating temporary save...")
+            
+            # Create a temporary save
+            import time
+            temp_filename = f"temp_freecad_view_{int(time.time())}.FCStd"
+            temp_path = os.path.join(os.getcwd(), temp_filename)
+            
+            save_result = self.save_document(temp_path)
+            if save_result.get("status") == "success":
+                return self.open_in_freecad_gui(temp_path)
+            else:
+                return {"status": "error", "message": "Failed to save document for GUI viewing"}
+        
+        return self.open_in_freecad_gui(self.last_saved_document)
