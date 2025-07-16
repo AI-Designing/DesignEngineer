@@ -9,13 +9,14 @@ from redis_utils.client import RedisClient
 from redis_utils.state_cache import StateCache
 
 class FreeCADCLI:
-    def __init__(self, use_headless=True, llm_provider="openai", llm_api_key=None):
+    def __init__(self, use_headless=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True):
         self.api_client = FreeCADAPIClient(use_headless=use_headless)
         self.command_executor = None
         self.state_cache = None
         self.state_analyzer = None
         self.llm_provider = llm_provider
         self.llm_api_key = llm_api_key
+        self.auto_open_gui = auto_open_gui
         # Try to initialize Redis for state management
         try:
             redis_client = RedisClient()
@@ -31,7 +32,13 @@ class FreeCADCLI:
         
         if self.api_client.connect():
             print("✓ FreeCAD connection established")
-            self.command_executor = CommandExecutor(self.api_client, self.state_cache, llm_provider=self.llm_provider, llm_api_key=self.llm_api_key)
+            self.command_executor = CommandExecutor(
+                self.api_client, 
+                self.state_cache, 
+                llm_provider=self.llm_provider, 
+                llm_api_key=self.llm_api_key,
+                auto_open_gui=self.auto_open_gui
+            )
             self.state_analyzer = FreeCADStateAnalyzer(self.api_client)
             return True
         else:
@@ -91,6 +98,22 @@ class FreeCADCLI:
                         self.command_executor.manual_save(filename)
                     else:
                         self.command_executor.manual_save()
+                
+                elif user_input.lower() in ['gui', 'open', 'view']:
+                    # Open current document in GUI
+                    result = self.command_executor.open_current_in_gui()
+                    if result.get("status") == "success":
+                        print("✅ Document opened in FreeCAD GUI")
+                    else:
+                        print(f"❌ Failed to open in GUI: {result.get('message', 'Unknown error')}")
+                
+                elif user_input.lower() in ['gui-on', 'auto-gui-on']:
+                    # Enable auto GUI opening
+                    self.command_executor.set_auto_open_gui(True)
+                
+                elif user_input.lower() in ['gui-off', 'auto-gui-off']:
+                    # Disable auto GUI opening
+                    self.command_executor.set_auto_open_gui(False)
                 
                 else:
                     self.execute_command(user_input)
@@ -197,8 +220,17 @@ Available Commands:
     - fileinfo                  Show file locations and paths
     - saveinfo                  Show auto-save information and file locations
     - save [filename]           Manually save document (auto-save also enabled)
+    - gui / open / view         Open current document in FreeCAD GUI
+    - gui-on / auto-gui-on      Enable automatic GUI opening after commands
+    - gui-off / auto-gui-off    Disable automatic GUI opening
     - help                      Show this help
     - quit                      Exit
+
+  GUI Features:
+    🖥️  Auto-open in GUI        Automatically opens created objects in FreeCAD GUI
+    👁️  Visual Inspection       View your 3D models with proper camera positioning
+    🎯 Fit All Objects          Automatically fits all objects in the viewport
+    📐 Isometric View           Sets optimal viewing angle for 3D models
 
   State Analysis Features:
     ✅ Pad Created              Check if document has Pad objects
