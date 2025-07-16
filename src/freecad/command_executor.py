@@ -6,12 +6,13 @@ from .state_manager import FreeCADStateAnalyzer
 from llm.client import LLMClient
 
 class CommandExecutor:
-    def __init__(self, api_client=None, state_manager=None, auto_save=True, llm_provider="openai", llm_api_key=None):
+    def __init__(self, api_client=None, state_manager=None, auto_save=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True):
         self.api_client = api_client
         self.state_manager = state_manager
         self.state_analyzer = FreeCADStateAnalyzer(api_client)
         self.command_history = []
         self.auto_save = auto_save
+        self.auto_open_gui = auto_open_gui  # New option to control GUI opening
         self.save_counter = 0
         self.last_saved_path = None
         # llm_provider: 'openai' or 'google', llm_api_key: API key for the provider
@@ -35,6 +36,21 @@ class CommandExecutor:
                 if save_result:
                     print(f"\n💾 Document auto-saved to: {save_result}")
                     self.last_saved_path = save_result
+                    
+                    # Auto-open in GUI if enabled
+                    if self.auto_open_gui:
+                        print("🖥️  Opening document in FreeCAD GUI...")
+                        gui_result = self.api_client.open_in_freecad_gui(save_result)
+                        if gui_result.get("status") == "success":
+                            print("✅ Document opened in FreeCAD GUI with objects visible")
+                        else:
+                            print(f"⚠️  Could not open in GUI: {gui_result.get('message', 'Unknown error')}")
+                            # Try manual GUI opening as fallback
+                            gui_result = self.api_client.open_current_document_in_gui()
+                            if gui_result.get("status") == "success":
+                                print("✅ Document opened in FreeCAD GUI (fallback method)")
+                            else:
+                                print(f"❌ GUI opening failed: {gui_result.get('message', 'Unknown error')}")
             
             # Update state if state manager is available
             if self.state_manager and response.get("status") == "success":
@@ -285,3 +301,16 @@ print("Sphere created: {name}")
         """Create a sphere in FreeCAD"""
         command = self._generate_sphere_command(radius, name)
         return self.execute(command)
+
+    def set_auto_open_gui(self, enabled: bool):
+        """Enable or disable automatic GUI opening after command execution"""
+        self.auto_open_gui = enabled
+        status = "enabled" if enabled else "disabled"
+        print(f"🖥️  Auto-open GUI {status}")
+    
+    def open_current_in_gui(self):
+        """Manually open the current document in FreeCAD GUI"""
+        if self.api_client:
+            return self.api_client.open_current_document_in_gui()
+        else:
+            return {"status": "error", "message": "No API client available"}
