@@ -13,6 +13,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
 from redis_utils.client import RedisClient
 
 class MockFreeCADStateService:
@@ -90,8 +93,8 @@ class MockFreeCADStateService:
         analysis_key = f"analysis:{document_name}:{session_id}"
         
         try:
-            self.redis_client.set(state_key, state_data, ex=expiration)
-            self.redis_client.set(analysis_key, analysis_data, ex=expiration)
+            self.redis_client.set(state_key, json.dumps(state_data), ex=expiration)
+            self.redis_client.set(analysis_key, json.dumps(analysis_data), ex=expiration)
             
             # Store in document history
             history_key = f"history:{document_name}"
@@ -100,7 +103,7 @@ class MockFreeCADStateService:
                 'timestamp': timestamp,
                 'session_id': session_id
             }
-            self.redis_client.hset(history_key, timestamp, history_entry)
+            self.redis_client.hset(history_key, timestamp, json.dumps(history_entry))
             
             return {
                 'success': True,

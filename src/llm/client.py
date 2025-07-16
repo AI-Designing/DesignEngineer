@@ -52,14 +52,29 @@ class LLMClient:
                 state_str = 'N/A'
             
             prompt = ChatPromptTemplate.from_messages([
-                ("system", "You are an expert FreeCAD Python scripter. Given a user request and the current FreeCAD state, generate a single valid FreeCAD Python command or script that fulfills the request. Only output the code, no explanations."),
+                ("system", "You are an expert FreeCAD Python scripter. Given a user request and the current FreeCAD state, generate a single valid FreeCAD Python command or script that fulfills the request. IMPORTANT: Only output the Python code, no markdown formatting, no explanations, no code blocks, no backticks. The code should be ready to execute directly."),
                 ("human", f"User request: {nl_command}\nCurrent state: {state_str}")
             ])
             messages = prompt.format_messages()
             response = self.llm.invoke(messages)
+            
+            # Clean the response content
+            code = response.content.strip()
+            
+            # Remove markdown code blocks if present
+            if code.startswith('```python'):
+                code = code[9:]  # Remove ```python
+            elif code.startswith('```'):
+                code = code[3:]  # Remove ```
+            
+            if code.endswith('```'):
+                code = code[:-3]  # Remove trailing ```
+            
+            code = code.strip()
+            
             # Print the generated code for verification
-            print("[LLMClient] Generated code:\n", response.content)
-            return response.content.strip()
+            print("[LLMClient] Generated code:\n", code)
+            return code
         except Exception as e:
             print(f"[LLMClient] Error generating command: {e}")
             raise
