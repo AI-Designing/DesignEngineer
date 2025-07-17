@@ -92,12 +92,24 @@ class CommandExecutor:
         # Rule-based parsing
         if "create" in nl_command and "box" in nl_command:
             dimensions = self._extract_dimensions(nl_command)
-            return self._generate_box_command(**dimensions)
+            # Create a new dict with correct types
+            box_args = {
+                "length": int(dimensions["length"]),
+                "width": int(dimensions["width"]),
+                "height": int(dimensions["height"]),
+                "name": str(dimensions["name"])
+            }
+            return self._generate_box_command(**box_args)
         elif "create" in nl_command and "cylinder" in nl_command:
             dimensions = self._extract_cylinder_dimensions(nl_command)
-            return self._generate_cylinder_command(**dimensions)
+            cyl_args = {
+                "radius": int(dimensions["radius"]),
+                "height": int(dimensions["height"]),
+                "name": str(dimensions["name"])
+            }
+            return self._generate_cylinder_command(**cyl_args)
         elif "create" in nl_command and "sphere" in nl_command:
-            radius = self._extract_sphere_radius(nl_command)
+            radius = int(self._extract_sphere_radius(nl_command))
             return self._generate_sphere_command(radius)
         elif "save" in nl_command and "document" in nl_command:
             filename = self._extract_filename(nl_command, "fcstd")
@@ -235,11 +247,18 @@ print("Sphere created: {name}")
             timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"freecad_auto_save_{timestamp}_{self.save_counter:03d}.FCStd"
             
-            # Get current working directory for the save path
-            save_path = os.path.join(os.getcwd(), filename)
+            # Save in outputs directory
+            outputs_dir = os.path.join(os.getcwd(), "outputs")
+            if not os.path.exists(outputs_dir):
+                os.makedirs(outputs_dir)
+            save_path = os.path.join(outputs_dir, filename)
             
             # Save the document
-            result = self.api_client.save_document(save_path)
+            if self.api_client:
+                result = self.api_client.save_document(save_path)
+            else:
+                print("Warning: api_client is not initialized.")
+                return None
             if result.get("status") == "success":
                 # Return the actual saved path from the API response
                 return result.get("saved_path", save_path)
@@ -253,18 +272,25 @@ print("Sphere created: {name}")
     def manual_save(self, filename=None):
         """Manually save the document with optional custom filename"""
         try:
+            outputs_dir = os.path.join(os.getcwd(), "outputs")
+            if not os.path.exists(outputs_dir):
+                os.makedirs(outputs_dir)
             if filename:
                 # Use provided filename
                 if not filename.endswith('.FCStd'):
                     filename += '.FCStd'
-                save_path = os.path.abspath(filename)
+                save_path = os.path.join(outputs_dir, os.path.basename(filename))
             else:
                 # Generate default filename
                 timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"freecad_manual_save_{timestamp}.FCStd"
-                save_path = os.path.join(os.getcwd(), filename)
+                save_path = os.path.join(outputs_dir, filename)
             
-            result = self.api_client.save_document(save_path)
+            if self.api_client:
+                result = self.api_client.save_document(save_path)
+            else:
+                print("Warning: api_client is not initialized.")
+                return None
             if result.get("status") == "success":
                 actual_path = result.get("saved_path", save_path)
                 self.last_saved_path = actual_path
@@ -289,16 +315,26 @@ print("Sphere created: {name}")
     # Enhanced predefined commands
     def create_box(self, length=10, width=10, height=10, name="Box"):
         """Create a box in FreeCAD"""
+        # Ensure types are correct
+        length = int(float(length))
+        width = int(float(width))
+        height = int(float(height))
+        name = str(name)
         command = self._generate_box_command(length, width, height, name)
         return self.execute(command)
 
     def create_cylinder(self, radius=5, height=10, name="Cylinder"):
         """Create a cylinder in FreeCAD"""
+        radius = int(float(radius))
+        height = int(float(height))
+        name = str(name)
         command = self._generate_cylinder_command(radius, height, name)
         return self.execute(command)
 
     def create_sphere(self, radius=5, name="Sphere"):
         """Create a sphere in FreeCAD"""
+        radius = int(float(radius))
+        name = str(name)
         command = self._generate_sphere_command(radius, name)
         return self.execute(command)
 
