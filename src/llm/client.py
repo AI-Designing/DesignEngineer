@@ -1,15 +1,4 @@
 import os
-# Use langchain_openai for OpenAI to avoid deprecation warnings
-try:
-    from langchain_openai import ChatOpenAI
-except ImportError:
-    # Fallback to older imports if langchain_openai is not available
-    try:
-        from langchain_community.chat_models import ChatOpenAI
-    except ImportError:
-        from langchain.chat_models import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-
 # Google Gemini import
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
@@ -17,20 +6,14 @@ except ImportError:
     ChatGoogleGenerativeAI = None
 
 class LLMClient:
-    def __init__(self, api_key=None, model_name=None, provider="openai"):
+    def __init__(self, api_key=None, model_name=None, provider="google"):
         self.provider = provider
-        if provider == "google":
-            self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
-            self.model_name = model_name or "gemini-1.5-flash"
-            if ChatGoogleGenerativeAI is None:
-                raise ImportError("Google Gemini provider not installed. Please install langchain-google-genai.")
-            print("[LLMClient] Using Google Gemini for command generation.")
-            self.llm = ChatGoogleGenerativeAI(google_api_key=self.api_key, model=self.model_name)
-        else:
-            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-            self.model_name = model_name or "gpt-3.5-turbo"
-            print("[LLMClient] Using OpenAI for command generation.")
-            self.llm = ChatOpenAI(openai_api_key=self.api_key, model=self.model_name)
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        self.model_name = model_name or "gemini-1.5-flash"
+        if ChatGoogleGenerativeAI is None:
+            raise ImportError("Google Gemini provider not installed. Please install langchain-google-genai.")
+        print("[LLMClient] Using Google Gemini for command generation.")
+        self.llm = ChatGoogleGenerativeAI(google_api_key=self.api_key, model=self.model_name)
 
     def generate_command(self, nl_command, state=None):
         """
@@ -51,6 +34,7 @@ class LLMClient:
             else:
                 state_str = 'N/A'
             
+            from langchain.prompts import ChatPromptTemplate
             prompt = ChatPromptTemplate.from_messages([
                 ("system", "You are an expert FreeCAD Python scripter. Given a user request and the current FreeCAD state, generate a single valid FreeCAD Python command or script that fulfills the request. IMPORTANT: Only output the Python code, no markdown formatting, no explanations, no code blocks, no backticks. The code should be ready to execute directly."),
                 ("human", f"User request: {nl_command}\nCurrent state: {state_str}")
@@ -63,12 +47,12 @@ class LLMClient:
             
             # Remove markdown code blocks if present
             if code.startswith('```python'):
-                code = code[9:]  # Remove ```python
+                code = code[9:]
             elif code.startswith('```'):
-                code = code[3:]  # Remove ```
+                code = code[3:]
             
             if code.endswith('```'):
-                code = code[:-3]  # Remove trailing ```
+                code = code[:-3]
             
             code = code.strip()
             
