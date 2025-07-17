@@ -43,7 +43,7 @@ class LLMClient:
             response = self.llm.invoke(messages)
             
             # Clean the response content
-            code = response.content.strip()
+            code = response.text().strip()
             
             # Remove markdown code blocks if present
             if code.startswith('```python'):
