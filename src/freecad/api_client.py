@@ -224,16 +224,29 @@ print(f"STATE: {json.dumps(state)}")
 
     def save_document(self, file_path):
         """Save the current document"""
+        # If FreeCAD and self.document are available, save directly
+        if FreeCAD and self.document:
+            try:
+                save_path = os.path.expanduser(file_path)
+                save_path = os.path.abspath(save_path)
+                self.document.saveAs(save_path)
+                print(f"SAVED_TO: {save_path}")
+                print(f"Document saved to: {save_path}")
+                self.last_saved_document = save_path
+                return {"status": "success", "saved_path": save_path, "message": f"Document saved to: {save_path}"}
+            except Exception as e:
+                print(f"Error saving document: {e}")
+                return {"status": "error", "message": f"Failed to save document: {e}"}
+        # Otherwise, use subprocess fallback
         command = f"""
 import os
-save_path = os.path.expanduser("{file_path}")
+save_path = os.path.expanduser(\"{file_path}\")
 save_path = os.path.abspath(save_path)
 doc.saveAs(save_path)
-print(f"SAVED_TO: {{save_path}}")
-print(f"Document saved to: {{save_path}}")
+print(f\"SAVED_TO: {{save_path}}\")
+print(f\"Document saved to: {{save_path}}\")
 """
         result = self._execute_via_subprocess(command)
-        
         # Extract the saved path from the output
         if result.get("status") == "success":
             for line in result["message"].split('\n'):
@@ -242,7 +255,6 @@ print(f"Document saved to: {{save_path}}")
                     result["saved_path"] = saved_path
                     self.last_saved_document = saved_path  # Store the saved document path
                     break
-        
         return result
 
     def export_stl(self, objects, file_path):
