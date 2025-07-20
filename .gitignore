@@ -42,3 +42,5 @@ run.sh~
 
 # Env files
 .env
+
+/outputs/
