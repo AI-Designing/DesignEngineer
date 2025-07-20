@@ -115,6 +115,10 @@ class FreeCADCLI:
                     # Disable auto GUI opening
                     self.command_executor.set_auto_open_gui(False)
                 
+                elif user_input.lower() in ['complex', 'examples']:
+                    # Show complex shape examples
+                    self.show_complex_examples()
+                
                 else:
                     self.execute_command(user_input)
                     
@@ -127,18 +131,41 @@ class FreeCADCLI:
     def execute_command(self, command):
         """Execute a single command"""
         try:
-            if command.startswith('!'):
-                # Direct FreeCAD Python command
-                freecad_command = command[1:]
-                result = self.command_executor.execute(freecad_command)
-            else:
-                # Natural language command
-                result = self.command_executor.execute_natural_language(command)
+            # Check if this is a complex shape request
+            command_lower = command.lower()
+            complex_keywords = [
+                "complex", "combine", "together", "and", "with", 
+                "tower", "rocket", "structure", "building", "assembly"
+            ]
             
-            if result["status"] == "success":
-                print(f"✓ {result['message']}")
+            # Check for multiple shape words in one command
+            shape_words = ["cone", "cylinder", "box", "sphere", "cube"]
+            shape_count = sum(1 for shape in shape_words if shape in command_lower)
+            
+            # Detect complex shape requests
+            is_complex = (
+                any(keyword in command_lower for keyword in complex_keywords) or
+                shape_count > 1 or
+                ("create" in command_lower and len(command.split()) > 5)
+            )
+            
+            if is_complex:
+                print("🔧 Detected complex shape request - using multi-step approach")
+                self.execute_complex_shape(command)
             else:
-                print(f"✗ Error: {result['message']}")
+                # Single operation
+                if command.startswith('!'):
+                    # Direct FreeCAD Python command
+                    freecad_command = command[1:]
+                    result = self.command_executor.execute(freecad_command)
+                else:
+                    # Natural language command
+                    result = self.command_executor.execute_natural_language(command)
+                
+                if result["status"] == "success":
+                    print(f"✓ {result['message']}")
+                else:
+                    print(f"✗ Error: {result['message']}")
                 
         except Exception as e:
             print(f"✗ Exception: {e}")
@@ -207,6 +234,13 @@ Available Commands:
     - save document as myfile    Save document
     - export stl as output       Export to STL
   
+  🏗️  Complex Shapes:
+    - create a cone and cylinder together    Multi-step shape creation
+    - build a tower with cone roof          Architectural structure
+    - make a rocket with fins               Complex assembly
+    - create complex building structure     Multi-component design
+    - complex / examples                    Show complex shape examples
+  
   Direct FreeCAD Commands (prefix with !):
     - !box = doc.addObject("Part::Box", "MyBox")
     - !box.Length = 10
@@ -223,8 +257,16 @@ Available Commands:
     - gui / open / view         Open current document in FreeCAD GUI
     - gui-on / auto-gui-on      Enable automatic GUI opening after commands
     - gui-off / auto-gui-off    Disable automatic GUI opening
+    - complex / examples        Show complex shape examples
     - help                      Show this help
     - quit                      Exit
+
+  🏗️  Complex Shape Features:
+    🔧 Multi-step Processing     Automatically breaks complex requests into steps
+    🎯 Smart Detection          Recognizes when multiple operations are needed
+    🔄 Sequential Execution     Executes operations in logical order
+    ⚡ Auto-fusion              Automatically combines related components
+    📐 Positioning Logic        Intelligently positions components relative to each other
 
   GUI Features:
     🖥️  Auto-open in GUI        Automatically opens created objects in FreeCAD GUI
@@ -295,6 +337,113 @@ Available Commands:
                 print("⚠️  File no longer exists at saved location")
         else:
             print("No files saved yet")
+
+    def execute_complex_shape(self, description):
+        """Execute complex shape creation with multiple operations"""
+        print(f"🔄 Creating complex shape: {description}")
+        
+        # Enhanced prompts for complex shape creation
+        complex_prompts = {
+            "cone and cylinder": [
+                "create a cylinder with radius 5 and height 10",
+                "create a cone with radius 3 and height 8 positioned on top of the cylinder",
+                "fuse the cylinder and cone together"
+            ],
+            "tower": [
+                "create a cylinder base with radius 8 and height 5",
+                "create a smaller cylinder with radius 6 and height 10 on top",
+                "create a cone roof with radius 6 and height 6 on top",
+                "fuse all parts together"
+            ],
+            "rocket": [
+                "create a cylinder body with radius 4 and height 20",
+                "create a cone nose with radius 4 and height 8 on top",
+                "create 4 small cylinders as fins with radius 1 and height 6",
+                "position fins around the base",
+                "fuse body and nose together"
+            ],
+            "complex structure": [
+                "create a box base 20x20x5",
+                "create a cylinder pillar radius 3 height 15 at each corner",
+                "create a cone roof radius 8 height 5 in the center",
+                "fuse all components together"
+            ]
+        }
+        
+        # Try to match the description to known complex shapes
+        description_lower = description.lower()
+        
+        if "cone" in description_lower and "cylinder" in description_lower:
+            commands = complex_prompts["cone and cylinder"]
+        elif "tower" in description_lower:
+            commands = complex_prompts["tower"]
+        elif "rocket" in description_lower:
+            commands = complex_prompts["rocket"]
+        elif "complex" in description_lower or "structure" in description_lower:
+            commands = complex_prompts["complex structure"]
+        else:
+            # Fallback to LLM for complex interpretation
+            commands = [f"create a complex shape: {description}"]
+        
+        results = []
+        for i, command in enumerate(commands, 1):
+            print(f"  Step {i}/{len(commands)}: {command}")
+            try:
+                if command.startswith('!'):
+                    # Direct FreeCAD Python command
+                    freecad_command = command[1:]
+                    result = self.command_executor.execute(freecad_command)
+                else:
+                    # Natural language command
+                    result = self.command_executor.execute_natural_language(command)
+                
+                if result["status"] == "success":
+                    print(f"    ✓ {result['message']}")
+                    results.append(result)
+                else:
+                    print(f"    ✗ Error: {result['message']}")
+                    # Continue with next step even if one fails
+                    
+            except Exception as e:
+                print(f"    ✗ Exception: {e}")
+        
+        print(f"✅ Complex shape creation completed with {len(results)} successful operations")
+        return results
+
+    def show_complex_examples(self):
+        """Show examples of complex shape commands"""
+        examples = """
+🏗️  Complex Shape Examples:
+
+Basic Combinations:
+  create a cone and cylinder together
+  make a box with a cylinder on top
+  build a sphere and cube assembly
+
+Architectural Shapes:
+  create a tower with cone roof
+  build a rocket with fins
+  make a complex building structure
+  create a lighthouse with base and tower
+
+Advanced Operations:
+  create a cylinder, add a cone on top, and fuse them
+  make a box base with four cylinder pillars and a cone roof
+  build a rocket with cylindrical body, cone nose, and fin attachments
+  create a complex mechanical part with multiple features
+
+Multi-step Examples:
+  "create tower" → base cylinder + main cylinder + cone roof + fusion
+  "create rocket" → main body + nose cone + fins + assembly
+  "complex structure" → base + pillars + roof + complete fusion
+
+Tips:
+  ✅ Use keywords like: together, combine, complex, tower, rocket, building
+  ✅ Mention multiple shapes in one command: "cone and cylinder"
+  ✅ Use descriptive terms: "tower with roof", "rocket with fins"
+  ✅ The system automatically detects complex requests and breaks them into steps
+"""
+        print(examples)
 
 def main():
     parser = argparse.ArgumentParser(description="FreeCAD Command Line Interface")
