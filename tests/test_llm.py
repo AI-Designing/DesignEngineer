@@ -1,5 +1,5 @@
 import unittest
-from src.llm.client import LLMClient
+from ai_designer.llm.client import LLMClient
 
 class TestLLMClient(unittest.TestCase):
 

@@ -12,8 +12,8 @@ import argparse
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from freecad.api_client import FreeCADAPIClient
-from freecad.state_manager import FreeCADStateAnalyzer
+from ai_designer.freecad.api_client import FreeCADAPIClient
+from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
 
 def analyze_file(file_path, verbose=False):
     """Analyze a specific FreeCAD file"""

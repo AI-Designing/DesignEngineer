@@ -13,9 +13,9 @@ except ImportError:
     # Fallback for when module structure is not available
     current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.insert(0, current_dir)
-    from freecad.state_manager import FreeCADStateAnalyzer
-    from freecad.state_aware_processor import StateAwareCommandProcessor
-    from llm.client import LLMClient
+    from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
+    from ai_designer.freecad.state_aware_processor import StateAwareCommandProcessor
+    from ai_designer.llm.client import LLMClient
 
 class CommandExecutor:
     def __init__(self, api_client=None, state_manager=None, auto_save=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True):

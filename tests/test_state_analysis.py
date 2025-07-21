@@ -9,9 +9,9 @@ import tempfile
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from freecad.api_client import FreeCADAPIClient
-from freecad.state_manager import FreeCADStateAnalyzer
-from freecad.command_executor import CommandExecutor
+from ai_designer.freecad.api_client import FreeCADAPIClient
+from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
+from ai_designer.freecad.command_executor import CommandExecutor
 
 def test_basic_analysis():
     """Test basic analysis functionality"""

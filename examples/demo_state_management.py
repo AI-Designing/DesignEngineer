@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Any
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from redis_utils.client import RedisClient
+from ai_designer.redis_utils.client import RedisClient
 
 class MockFreeCADStateService:
     """Mock FreeCAD State Service for demonstration purposes"""

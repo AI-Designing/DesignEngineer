@@ -1,67 +1,387 @@
-# FreeCAD LLM Automation
+# AI Designer - FreeCAD LLM Automation System
 
-This project aims to create a software application that allows users to interact with FreeCAD using natural language commands. By leveraging a Large Language Model (LLM), the application translates user input into executable commands for FreeCAD, maintaining the state of the environment using Redis for low-latency performance.
+## 🎯 Overview
 
-## Project Structure
+AI Designer is a comprehensive FreeCAD automation system that allows users to interact with FreeCAD using natural language commands. By leveraging Large Language Models (LLM), the application translates user input into executable commands for FreeCAD, maintaining intelligent state management and providing real-time feedback.
+
+**Key Features:**
+- **🧠 Intelligent State Management**: Saves and retrieves current design state with all required data
+- **⚡ Low-Latency Processing**: Optimized for quick decision-making and execution  
+- **🔄 Real-time Updates**: Live progress tracking via WebSocket connections
+- **🎯 LLM-Powered Decisions**: Uses AI to make intelligent next-step decisions
+- **📊 Complete Component Building**: Capable of building entire design components
+
+## 🏗️ Project Structure
 
 ```
-freecad-llm-automation
-├── src
-│   ├── main.py                # Entry point of the application
-│   ├── llm                    # LLM related functionalities
-│   │   ├── client.py          # Handles communication with the LLM
-│   │   └── prompt_templates.py # Predefined prompt templates
-│   ├── freecad                # FreeCAD API interaction
-│   │   ├── api_client.py      # Manages connection to FreeCAD API
-│   │   ├── command_executor.py # Executes commands in FreeCAD
-│   │   └── state_manager.py    # Maintains the current state of FreeCAD
-│   ├── redis                  # Redis database interaction
-│   │   ├── client.py          # Manages connection to Redis
-│   │   └── state_cache.py     # Caches FreeCAD state in Redis
-│   ├── parsers                # Command parsing
-│   │   └── command_parser.py   # Parses natural language commands
-│   └── utils                  # Utility functions
-│       └── helpers.py         # Various helper functions
-├── config
-│   ├── config.yaml            # Configuration settings
-│   └── redis.conf             # Redis server configuration
-├── tests                      # Unit tests
-│   ├── test_llm.py           # Tests for LLM client
-│   ├── test_freecad.py       # Tests for FreeCAD API client
-│   └── test_redis.py         # Tests for Redis client
-├── requirements.txt           # Project dependencies
-├── docker-compose.yml         # Docker configuration
-└── README.md                  # Project documentation
+ai-designing-designengineer/
+├── src/
+│   └── ai_designer/           # Main package
+│       ├── __init__.py        # Package initialization
+│       ├── __main__.py        # CLI entry point (python -m ai_designer)
+│       ├── cli.py             # Command-line interface
+│       ├── core/              # Core system components
+│       │   ├── orchestrator.py      # System orchestration
+│       │   ├── queue_manager.py     # Command queue management
+│       │   ├── intent_processor.py  # Natural language processing
+│       │   └── state_llm_integration.py # State-aware LLM integration
+│       ├── freecad/           # FreeCAD API integration
+│       │   ├── api_client.py         # FreeCAD API communication
+│       │   ├── command_executor.py  # Command execution
+│       │   ├── state_manager.py     # FreeCAD state management
+│       │   └── state_aware_processor.py # State-aware processing
+│       ├── llm/               # LLM integration
+│       │   ├── client.py             # LLM client interfaces
+│       │   └── prompt_templates.py  # LLM prompt templates
+│       ├── realtime/          # Real-time features
+│       │   └── websocket_manager.py # WebSocket connections
+│       ├── parsers/           # Command parsing
+│       │   └── command_parser.py    # Natural language parsing
+│       ├── redis_utils/       # Redis state caching
+│       ├── services/          # Additional services
+│       └── utils/             # Utility functions
+│           ├── analysis.py          # Design analysis tools
+│           └── validation.py        # Input validation
+├── examples/                  # Usage examples
+│   ├── demo_state_management.py     # State management demo
+│   ├── state_cli_example.py         # CLI usage example
+│   └── websocket_client_example.py  # WebSocket client example
+├── scripts/                   # Utility scripts
+│   ├── run_complex_demo.sh          # Complex shapes demo
+│   └── run_tests.sh                 # Test runner
+├── tests/                     # Test suite
+│   ├── test_freecad.py              # FreeCAD tests
+│   ├── test_llm.py                  # LLM tests
+│   └── test_state_analysis.py      # State analysis tests
+├── docs/                      # Documentation
+│   ├── architecture.md              # System architecture
+│   ├── STATE_MANAGEMENT.md         # State management guide
+│   ├── STATE_ANALYSIS.md           # State analysis guide
+│   └── advanced/                    # Advanced documentation
+│       └── COMPLEX_SHAPES.md       # Complex shapes guide
+├── config/                    # Configuration files
+│   ├── config.yaml                 # Main configuration
+│   └── redis.conf                  # Redis configuration
+├── outputs/                   # Generated files
+├── pyproject.toml            # Project configuration and dependencies
+├── LICENSE                   # MIT License
+├── CONTRIBUTING.md          # Contribution guidelines
+└── README.md                # This file
 ```
 
-## Installation
+## 📦 Installation
 
-1. Clone the repository:
-   ```
-   git clone <repository-url>
-   cd freecad-llm-automation
-   ```
+### Prerequisites
+```bash
+# Install FreeCAD (required)
+sudo apt install freecad  # Ubuntu/Debian
+# or
+brew install freecad      # macOS
 
-2. Install the required dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-
-3. Configure the application by editing `config/config.yaml` and `config/redis.conf` as needed.
-
-## Usage
-
-To run the application, execute the following command:
-```
-python src/main.py
+# Install Redis (optional, for enhanced features)
+sudo apt install redis-server  # Ubuntu/Debian
+# or
+brew install redis            # macOS
 ```
 
-Follow the prompts to input natural language commands for FreeCAD. The application will process the commands and execute them in the FreeCAD environment.
+### Install AI Designer
 
-## Contributing
+#### From Source (Development)
+```bash
+# Clone the repository
+git clone https://github.com/your-username/ai-designing-designengineer.git
+cd ai-designing-designengineer
 
-Contributions are welcome! Please submit a pull request or open an issue for any enhancements or bug fixes.
+# Install in development mode
+pip install -e .[dev]
+```
 
-## License
+#### From PyPI (Coming Soon)
+```bash
+pip install ai-designer
+```
 
-This project is licensed under the MIT License. See the LICENSE file for more details.
+### Configuration
+1. Set your LLM API key:
+   ```bash
+   export GOOGLE_API_KEY="your-api-key"
+   # or
+   export OPENAI_API_KEY="your-api-key"
+   ```
+
+2. Start Redis (optional but recommended for enhanced features):
+   ```bash
+   redis-server
+   ```
+
+## 🚀 Usage
+
+### Command Line Interface
+
+#### Basic Usage
+```bash
+# Run AI Designer with standard features
+ai-designer --interactive
+
+# Execute a single command
+ai-designer "Create a cube with dimensions 10x10x10"
+
+# Analyze an existing FreeCAD file
+ai-designer --analyze path/to/file.FCStd
+```
+
+#### Enhanced Mode (Full Features)
+```bash
+# Run with enhanced state management and real-time features
+ai-designer --enhanced --interactive --llm-provider google --llm-api-key your-key
+
+# Run enhanced mode with custom configuration
+ai-designer --enhanced --redis-host localhost --websocket-port 8765 --max-concurrent 5
+```
+
+### Python API
+
+#### Basic Usage
+```python
+from ai_designer import FreeCADCLI
+
+# Initialize the CLI
+cli = FreeCADCLI(
+    use_headless=True,
+    llm_provider='google',
+    llm_api_key='your-api-key'
+)
+
+# Execute commands
+if cli.initialize():
+    cli.execute_command("Create a cube and add a cylinder next to it")
+```
+
+#### Enhanced Usage with Full State Management
+```python
+from ai_designer.core.orchestrator import SystemOrchestrator
+
+# Initialize with full configuration
+config = {
+    'redis_host': 'localhost',
+    'redis_port': 6379,
+    'llm_provider': 'google',
+    'llm_api_key': 'your-api-key',
+    'enable_realtime': True,
+    'websocket_port': 8765
+}
+
+orchestrator = SystemOrchestrator(config)
+orchestrator.start_system()
+
+# Process commands with full state awareness
+result = orchestrator.process_user_input_enhanced(
+    "Create a complex building structure with multiple floors",
+    session_id="my_design_session"
+)
+
+print(f"Status: {result['status']}")
+print(f"Objects created: {result['execution']['objects_created']}")
+```
+
+### Real-time Features
+
+#### WebSocket Client
+```python
+import asyncio
+import websockets
+import json
+
+async def websocket_client():
+    uri = "ws://localhost:8765"
+    async with websockets.connect(uri) as websocket:
+        # Register for session updates
+        await websocket.send(json.dumps({
+            "type": "register_session",
+            "session_id": "my_session"
+        }))
+        
+        # Listen for real-time updates
+        async for message in websocket:
+            data = json.loads(message)
+            print(f"Update: {data}")
+
+# Run the WebSocket client
+asyncio.run(websocket_client())
+```
+
+## 🧪 Examples
+
+### Basic Shape Creation
+```bash
+ai-designer "Create a cube with dimensions 20x20x20"
+ai-designer "Add a cylinder with radius 5 and height 15 next to the cube"
+ai-designer "Change the cube color to red and the cylinder color to blue"
+```
+
+### Complex Design Tasks
+```bash
+ai-designer --enhanced "Design a simple house with walls, roof, and windows"
+ai-designer --enhanced "Create a mechanical part with holes and fillets"
+ai-designer --enhanced "Build a tower structure with multiple levels"
+```
+
+### Analysis and Export
+```bash
+ai-designer "Analyze the current design and provide dimensions"
+ai-designer "Export the design as STL file"
+ai-designer "What objects are currently in the document?"
+```
+
+## 🔧 System Architecture
+
+The system implements a comprehensive architecture with the following layers:
+
+### User Layer
+- **Natural Language Interface**: Accept user commands in plain English
+- **Error Handling**: Comprehensive error recovery and user feedback
+- **Live Updates**: Real-time progress tracking and notifications
+
+### AI Enhancement Layer  
+- **Intent Processing**: Understands and categorizes user requirements
+- **Command Generation**: Creates appropriate FreeCAD commands
+- **Context Analysis**: Analyzes current design state for informed decisions
+- **Pattern Recognition**: Learns from previous commands and interactions
+
+### Processing Layer
+- **Queue Management**: Handles command prioritization and execution order
+- **Load Balancing**: Distributes processing load across available resources
+- **Safe Execution**: Sandboxed command execution with timeout protection
+
+### Storage Layer
+- **Design State Management**: Maintains current design context and history
+- **Session Tracking**: Persistent user sessions across interactions
+- **Performance Metrics**: System performance and usage analytics
+
+### Real-time Layer
+- **WebSocket Connections**: Live client connections for real-time updates
+- **Progress Broadcasting**: Real-time command execution progress
+- **State Notifications**: Immediate design state change notifications
+
+## 📊 Performance & Monitoring
+
+### Key Features
+- **State Caching**: Redis-based state storage for low-latency access
+- **Async Processing**: Non-blocking operations for better responsiveness
+- **Performance Metrics**: Real-time system performance monitoring
+- **Smart Caching**: LLM decision caching to reduce API calls
+
+### Metrics Available
+```python
+metrics = orchestrator.get_performance_metrics()
+# Includes: processing time, success rate, cache hit rate, connection count
+```
+
+## 🛠️ Development
+
+### Setup Development Environment
+```bash
+git clone https://github.com/your-username/ai-designing-designengineer.git
+cd ai-designing-designengineer
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+# or
+venv\Scripts\activate     # Windows
+
+# Install in development mode
+pip install -e .[dev]
+```
+
+### Running Tests
+```bash
+# Run all tests
+pytest
+
+# Run specific test categories
+pytest tests/test_freecad.py
+pytest tests/test_llm.py
+
+# Run with coverage
+pytest --cov=ai_designer
+```
+
+### Code Quality
+```bash
+# Format code
+black src/ tests/
+
+# Lint code
+flake8 src/ tests/
+
+# Type checking
+mypy src/
+```
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+### Quick Start for Contributors
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Make your changes with tests
+4. Run quality checks: `black src/ && flake8 src/ && pytest`
+5. Submit a pull request
+
+## 📚 Documentation
+
+- [Architecture Guide](docs/architecture.md) - System architecture overview
+- [State Management](docs/STATE_MANAGEMENT.md) - State management details
+- [Complex Shapes](docs/advanced/COMPLEX_SHAPES.md) - Advanced shape creation
+- [API Reference](docs/) - Complete API documentation
+
+## 🔒 Security & Safety
+
+- **Command Sanitization**: Prevents dangerous operations
+- **Execution Sandboxing**: Isolated command execution environment
+- **State Validation**: Ensures design state consistency
+- **Timeout Protection**: Prevents infinite loops and hangs
+- **Resource Monitoring**: Memory and CPU usage limits
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [FreeCAD](https://www.freecadweb.org/) community for the excellent CAD platform
+- [OpenAI](https://openai.com/) and [Google](https://ai.google/) for LLM capabilities
+- [Redis](https://redis.io/) for high-performance caching
+- WebSocket protocol for real-time communication
+
+---
+
+## 🚀 Quick Demo
+
+Experience AI Designer in action:
+
+```bash
+# Start the enhanced system
+ai-designer --enhanced --interactive
+
+# In another terminal, connect to real-time updates
+python examples/websocket_client_example.py
+
+# Try these commands:
+"Create a parametric model of a chair"
+"Add a table with adjustable height" 
+"Design a simple house layout"
+"Export the entire scene as OBJ file"
+```
+
+The system will demonstrate:
+- ✅ Intelligent intent understanding and processing
+- ✅ State-aware LLM decision making  
+- ✅ Real-time progress tracking and updates
+- ✅ Automatic state management and checkpointing
+- ✅ Comprehensive error handling and recovery
+- ✅ Performance monitoring and optimization
+
+**Experience the future of AI-powered CAD automation!** 🎉

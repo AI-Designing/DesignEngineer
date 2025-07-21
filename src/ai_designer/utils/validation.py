@@ -1,4 +1,4 @@
-from freecad.api_client import FreeCADAPIClient
+from ai_designer.freecad.api_client import FreeCADAPIClient
 
 client = FreeCADAPIClient()
 client.connect()

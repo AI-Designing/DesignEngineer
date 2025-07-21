@@ -1,7 +1,7 @@
 import unittest
-from src.freecad.api_client import FreeCADAPIClient
-from src.freecad.command_executor import CommandExecutor
-from src.freecad.state_manager import StateManager
+from ai_designer.freecad.api_client import FreeCADAPIClient
+from ai_designer.freecad.command_executor import CommandExecutor
+from ai_designer.freecad.state_manager import StateManager
 
 class TestFreeCADAPIClient(unittest.TestCase):
     def setUp(self):

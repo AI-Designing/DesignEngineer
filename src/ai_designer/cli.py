@@ -5,20 +5,20 @@ import argparse
 
 # Fix imports to use absolute paths
 try:
-    from freecad.api_client import FreeCADAPIClient
-    from freecad.command_executor import CommandExecutor
-    from freecad.state_manager import FreeCADStateAnalyzer
-    from redis_utils.client import RedisClient
-    from redis_utils.state_cache import StateCache
+    from ai_designer.freecad.api_client import FreeCADAPIClient
+    from ai_designer.freecad.command_executor import CommandExecutor
+    from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
+    from ai_designer.redis_utils.client import RedisClient
+    from ai_designer.redis_utils.state_cache import StateCache
 except ImportError:
     # Fallback for when running as script
     current_dir = os.path.dirname(os.path.abspath(__file__))
     sys.path.insert(0, current_dir)
-    from freecad.api_client import FreeCADAPIClient
-    from freecad.command_executor import CommandExecutor
-    from freecad.state_manager import FreeCADStateAnalyzer
-    from redis_utils.client import RedisClient
-    from redis_utils.state_cache import StateCache
+    from ai_designer.freecad.api_client import FreeCADAPIClient
+    from ai_designer.freecad.command_executor import CommandExecutor
+    from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
+    from ai_designer.redis_utils.client import RedisClient
+    from ai_designer.redis_utils.state_cache import StateCache
 
 class FreeCADCLI:
     def __init__(self, use_headless=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True):
