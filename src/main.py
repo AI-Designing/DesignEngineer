@@ -1,6 +1,12 @@
 import sys
 import os
 import argparse
+
+# Add src directory to path if not already there
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
 from cli import FreeCADCLI
 
 def parse_arguments():
