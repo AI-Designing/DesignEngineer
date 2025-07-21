@@ -42,8 +42,15 @@ class LLMClient:
             messages = prompt.format_messages()
             response = self.llm.invoke(messages)
             
-            # Clean the response content
-            code = response.text().strip()
+            # Clean the response content - handle different response types
+            if hasattr(response, 'content'):
+                code = response.content.strip()
+            elif hasattr(response, 'text') and callable(getattr(response, 'text')):
+                code = response.text().strip()
+            elif hasattr(response, 'text'):
+                code = response.text.strip()
+            else:
+                code = str(response).strip()
             
             # Remove markdown code blocks if present
             if code.startswith('```python'):

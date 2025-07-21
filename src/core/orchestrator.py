@@ -173,7 +173,20 @@ class SystemOrchestrator:
         # Start WebSocket server if enabled
         if self.enable_realtime and self.websocket_manager:
             print("🌐 Starting WebSocket server...")
-            asyncio.run(self.websocket_manager.start_server())
+            # Create a task instead of using asyncio.run()
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If we're already in an event loop, create a task
+                    loop.create_task(self.websocket_manager.start_server())
+                else:
+                    # If no event loop is running, use asyncio.run()
+                    asyncio.run(self.websocket_manager.start_server())
+            except RuntimeError:
+                # Fallback: create new event loop
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.websocket_manager.start_server())
             print("✅ WebSocket server started")
         
         self.system_running = True

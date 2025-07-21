@@ -1,9 +1,21 @@
 import re
 import json
 import os
+import sys
 from typing import Dict, Any, Optional
-from .state_manager import FreeCADStateAnalyzer
-from llm.client import LLMClient
+
+# Fix relative imports
+try:
+    from .state_manager import FreeCADStateAnalyzer
+    from .state_aware_processor import StateAwareCommandProcessor
+    from ..llm.client import LLMClient
+except ImportError:
+    # Fallback for when module structure is not available
+    current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, current_dir)
+    from freecad.state_manager import FreeCADStateAnalyzer
+    from freecad.state_aware_processor import StateAwareCommandProcessor
+    from llm.client import LLMClient
 
 class CommandExecutor:
     def __init__(self, api_client=None, state_manager=None, auto_save=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True):
@@ -17,6 +29,17 @@ class CommandExecutor:
         self.last_saved_path = None
         # llm_provider: 'openai' or 'google', llm_api_key: API key for the provider
         self.llm_client = LLMClient(api_key=llm_api_key, provider=llm_provider)
+        
+        # Initialize state-aware processor for complex commands
+        if state_manager and api_client:
+            self.state_aware_processor = StateAwareCommandProcessor(
+                llm_client=self.llm_client,
+                state_cache=state_manager,
+                api_client=api_client,
+                command_executor=self
+            )
+        else:
+            self.state_aware_processor = None
 
     def execute(self, command):
         """Execute a FreeCAD command"""
@@ -80,11 +103,39 @@ class CommandExecutor:
 
     def execute_natural_language(self, nl_command: str) -> Dict[str, Any]:
         """Convert natural language to FreeCAD command and execute"""
+        
+        # Check if this is a complex command that needs state-aware processing
+        if self._is_complex_command(nl_command) and self.state_aware_processor:
+            print("🔧 Detected complex shape request - using multi-step approach")
+            print(f"🔄 Creating complex shape: {nl_command}")
+            return self.state_aware_processor.process_complex_command(nl_command)
+        
+        # For simple commands, use the existing rule-based approach
         freecad_command = self.parse_natural_language(nl_command)
         if freecad_command:
             return self.execute(freecad_command)
         else:
             return {"status": "error", "message": "Could not parse natural language command"}
+    
+    def _is_complex_command(self, nl_command: str) -> bool:
+        """Determine if a command requires multi-step state-aware processing"""
+        nl_lower = nl_command.lower()
+        
+        # Check for multiple objects in single command
+        object_keywords = ['box', 'cylinder', 'cone', 'sphere', 'torus']
+        object_count = sum(1 for keyword in object_keywords if keyword in nl_lower)
+        
+        # Check for relationship/positioning keywords
+        relationship_keywords = ['together', 'on top', 'beside', 'next to', 'combine', 'fuse', 'union', 'and']
+        has_relationships = any(keyword in nl_lower for keyword in relationship_keywords)
+        
+        # Complex if multiple objects OR relationships mentioned
+        is_complex = object_count > 1 or has_relationships
+        
+        if is_complex:
+            print(f"🧠 Complex command detected: {object_count} objects, relationships: {has_relationships}")
+        
+        return is_complex
 
     def parse_natural_language(self, nl_command: str) -> Optional[str]:
         """Enhanced: Use rules, then LLM if rules fail"""
@@ -108,6 +159,15 @@ class CommandExecutor:
                 "name": str(dimensions["name"])
             }
             return self._generate_cylinder_command(**cyl_args)
+        elif "create" in nl_command and "cone" in nl_command:
+            dimensions = self._extract_cone_dimensions(nl_command)
+            cone_args = {
+                "radius1": int(dimensions["radius1"]),
+                "radius2": int(dimensions["radius2"]),
+                "height": int(dimensions["height"]),
+                "name": str(dimensions["name"])
+            }
+            return self._generate_cone_command(**cone_args)
         elif "create" in nl_command and "sphere" in nl_command:
             radius = int(self._extract_sphere_radius(nl_command))
             return self._generate_sphere_command(radius)
@@ -212,6 +272,32 @@ sphere = doc.addObject("Part::Sphere", "{name}")
 sphere.Radius = {radius}
 doc.recompute()
 print("Sphere created: {name}")
+'''
+
+    def _extract_cone_dimensions(self, text: str) -> Dict[str, float]:
+        """Extract cone dimensions from text"""
+        dimensions = {"radius1": 5, "radius2": 2, "height": 10, "name": "Cone"}
+        
+        # Look for radius and height
+        radius_match = re.search(r'radius\s*(\d+(?:\.\d+)?)', text)
+        height_match = re.search(r'height\s*(\d+(?:\.\d+)?)', text)
+        
+        if radius_match:
+            dimensions["radius1"] = float(radius_match.group(1))
+        if height_match:
+            dimensions["height"] = float(height_match.group(1))
+        
+        return dimensions
+
+    def _generate_cone_command(self, radius1=5, radius2=2, height=10, name="Cone"):
+        """Generate FreeCAD command to create a cone"""
+        return f'''
+cone = doc.addObject("Part::Cone", "{name}")
+cone.Radius1 = {radius1}
+cone.Radius2 = {radius2}
+cone.Height = {height}
+doc.recompute()
+print("Cone created: {name}")
 '''
 
     def validate_command(self, command):
@@ -336,6 +422,15 @@ print("Sphere created: {name}")
         radius = int(float(radius))
         name = str(name)
         command = self._generate_sphere_command(radius, name)
+        return self.execute(command)
+
+    def create_cone(self, radius1=5, radius2=2, height=10, name="Cone"):
+        """Create a cone in FreeCAD"""
+        radius1 = int(float(radius1))
+        radius2 = int(float(radius2))
+        height = int(float(height))
+        name = str(name)
+        command = self._generate_cone_command(radius1, radius2, height, name)
         return self.execute(command)
 
     def set_auto_open_gui(self, enabled: bool):
