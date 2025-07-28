@@ -12,7 +12,7 @@ if [ -d "venv" ]; then
 fi
 
 # Your enhanced command with complex shape generation
-echo -e "create a cone and cylinder together\nstate\nanalyze\ngui\nexit" | python src/main.py --llm-provider google --llm-api-key AIzaSyDjw_g1kQZAofU-DOsdsCjgkf3_06R2UEk
+echo -e "create a cone and cylinder together\nstate\nanalyze\ngui\nexit" | python examples/run_freecad.py --llm-provider google
 
 echo ""
 echo "✅ Complex shape creation completed!"
