@@ -1,19 +1,49 @@
 import os
+import logging
+from typing import Optional, Dict, Any
+
+# Import secure configuration
+from ..config import get_api_key, ConfigurationError
+
 # Google Gemini import
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
 except ImportError:
     ChatGoogleGenerativeAI = None
 
+logger = logging.getLogger(__name__)
+
 class LLMClient:
-    def __init__(self, api_key=None, model_name=None, provider="google"):
+    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None, provider: str = "google"):
+        """
+        Initialize LLM client with secure API key handling.
+        
+        Args:
+            api_key: Optional API key (if not provided, loaded from secure config)
+            model_name: Model name to use (defaults to gemini-1.5-flash)
+            provider: LLM provider (currently only 'google' supported)
+        """
         self.provider = provider
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.model_name = model_name or "gemini-1.5-flash"
+        
+        # Securely get API key
+        try:
+            self.api_key = api_key or get_api_key()
+        except ConfigurationError as e:
+            logger.error(f"Failed to get API key: {e}")
+            raise
+        
         if ChatGoogleGenerativeAI is None:
             raise ImportError("Google Gemini provider not installed. Please install langchain-google-genai.")
-        print("[LLMClient] Using Google Gemini for command generation.")
-        self.llm = ChatGoogleGenerativeAI(google_api_key=self.api_key, model=self.model_name)
+        
+        logger.info("[LLMClient] Using Google Gemini for command generation.")
+        logger.info(f"[LLMClient] Model: {self.model_name}")
+        
+        # Initialize LLM with secure API key
+        self.llm = ChatGoogleGenerativeAI(
+            google_api_key=self.api_key, 
+            model=self.model_name
+        )
 
     def generate_command(self, nl_command, state=None):
         """
