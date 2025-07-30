@@ -110,7 +110,10 @@ Instructions:
 3. Each step should be a single, specific FreeCAD operation
 4. Consider object positioning, sizing, and relationships
 5. If objects need to be combined, plan the positioning first
-6. Return ONLY a JSON object with this exact structure:
+6. Use ONLY numeric values in JSON - NO mathematical expressions or formulas
+7. Use only standard FreeCAD object types: Part::Box, Part::Cylinder, Part::Cone, Part::Sphere, Part::Torus
+8. For gears, use cylinders as simplified representations
+9. Return ONLY a JSON object with this exact structure:
 
 {{
     "total_steps": <number>,
@@ -189,7 +192,16 @@ Example for "create a cone and cylinder together":
                 if clean_response.endswith('```'):
                     clean_response = clean_response[:-3]
                 
-                task_breakdown = json.loads(clean_response.strip())
+                # Additional cleaning for mathematical expressions in JSON
+                clean_response = clean_response.strip()
+                
+                # Try to find JSON between curly braces
+                import re
+                json_match = re.search(r'\{.*\}', clean_response, re.DOTALL)
+                if json_match:
+                    clean_response = json_match.group(0)
+                
+                task_breakdown = json.loads(clean_response)
                 
                 # Validate the structure
                 if not all(key in task_breakdown for key in ['total_steps', 'analysis', 'steps']):
@@ -200,7 +212,23 @@ Example for "create a cone and cylinder together":
                 
             except json.JSONDecodeError as e:
                 print(f"❌ Failed to parse LLM response as JSON: {e}")
+                print(f"Character position: line {e.lineno}, column {e.colno}")
+                
+                # Try to extract just the problematic area for debugging
+                lines = response_text.split('\n')
+                if len(lines) >= e.lineno:
+                    problematic_line = lines[e.lineno - 1] if e.lineno > 0 else ""
+                    print(f"Problematic line: {problematic_line}")
+                    print(f"Error near: {problematic_line[max(0, e.colno-10):e.colno+10]}")
+                
                 print(f"Raw response: {response_text}")
+                
+                # Try fallback: create a simplified task breakdown
+                print("🔄 Attempting to create simplified task breakdown...")
+                return self._create_fallback_task_breakdown(nl_command)
+                
+            except Exception as e:
+                print(f"❌ Other parsing error: {e}")
                 return {"error": "Invalid JSON response from LLM"}
                 
         except Exception as e:
@@ -387,6 +415,7 @@ sphere.Radius = {radius}"""
                 
             elif action_type == 'combine':
                 # Handle fusion/combination
+                parameters = details.get('parameters', {})
                 shapes = parameters.get('shapes', [])
                 if len(shapes) >= 2:
                     shapes_str = ', '.join([f"doc.getObject('{shape}')" for shape in shapes])
@@ -416,3 +445,23 @@ doc.recompute()"""
         except Exception as e:
             print(f"❌ LLM fallback failed: {e}")
             return None
+
+    def _create_fallback_task_breakdown(self, nl_command: str) -> Dict[str, Any]:
+        """Create a simple fallback task breakdown when JSON parsing fails"""
+        return {
+            "total_steps": 1,
+            "analysis": f"Simplified execution of: {nl_command}",
+            "steps": [
+                {
+                    "step_number": 1,
+                    "description": nl_command,
+                    "action_type": "create",
+                    "target_object": "GeneratedObject",
+                    "details": {
+                        "object_type": "generated",
+                        "parameters": {"command": nl_command},
+                        "positioning": {"x": 0, "y": 0, "z": 0, "explanation": "Default position"}
+                    }
+                }
+            ]
+        }

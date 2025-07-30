@@ -42,5 +42,12 @@ run.sh~
 
 # Env files
 .env
+.env.local
+.env.production
+
+# Package metadata (auto-generated)
+*.egg-info/
+build/
+dist/
 
 /outputs/
