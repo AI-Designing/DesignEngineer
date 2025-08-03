@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 
 # Add the src directory to the path
 current_dir = os.path.dirname(os.path.abspath(__file__))
-src_path = os.path.join(os.path.dirname(current_dir), 'src')
+src_path = os.path.join(current_dir, 'src')
 sys.path.insert(0, src_path)
 
 def setup_api_key():
