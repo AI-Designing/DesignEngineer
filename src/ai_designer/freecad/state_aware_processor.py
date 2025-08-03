@@ -26,11 +26,11 @@ class StateAwareCommandProcessor:
         """
         Main entry point: Process complex natural language command using state-driven approach
         
-        Flow:
-        1. Get current state from Redis
-        2. Use LLM to break down command into steps
-        3. Execute each step, updating state after each
-        4. Use updated state to inform next step decisions
+        Enhanced Flow:
+        1. Analyze workflow requirements (sketch-then-operate vs simple)
+        2. Get current state from Redis
+        3. Use appropriate processing strategy
+        4. Execute with continuous state validation
         """
         print(f"🧠 Processing complex command: {nl_command}")
         
@@ -39,15 +39,22 @@ class StateAwareCommandProcessor:
             current_state = self._get_current_state()
             print(f"📊 Current state retrieved: {len(current_state.get('objects', []))} objects")
             
-            # Step 2: Use LLM to break down the command into steps
-            task_breakdown = self._decompose_task(nl_command, current_state)
+            # Step 2: Analyze workflow requirements
+            workflow_analysis = self._analyze_workflow_requirements(nl_command, current_state)
+            print(f"🔍 Workflow analysis: {workflow_analysis.get('strategy', 'unknown')}")
             
-            if not task_breakdown or 'error' in task_breakdown:
-                return {"status": "error", "message": "Failed to decompose task"}
-            
-            print(f"📋 Task broken down into {len(task_breakdown['steps'])} steps")
-            
-            # Step 3: Execute each step with state updates
+            # Step 3: Use appropriate processing strategy
+            if workflow_analysis.get('requires_sketch_then_operate', False):
+                return self._process_sketch_then_operate_workflow(nl_command, current_state, workflow_analysis)
+            else:
+                return self._process_standard_workflow(nl_command, current_state)
+                
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': str(e),
+                'suggestion': 'Check FreeCAD connection and try a simpler command'
+            }
             return self._execute_step_sequence(task_breakdown, nl_command)
             
         except Exception as e:
@@ -85,6 +92,607 @@ class StateAwareCommandProcessor:
         except Exception as e:
             print(f"⚠️ Error getting current state: {e}")
             return {"objects": [], "object_count": 0, "error": str(e)}
+    
+    def _analyze_workflow_requirements(self, nl_command: str, current_state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze what type of workflow is required for the command
+        
+        Returns strategy info for:
+        - sketch_then_operate: Commands requiring sketch creation followed by operations
+        - face_selection: Commands needing intelligent face selection
+        - multi_step: Complex commands requiring multiple sequential operations
+        """
+        nl_lower = nl_command.lower()
+        
+        # Keywords that indicate sketch-then-operate workflow
+        sketch_operations = ['cylinder', 'extrude', 'pad', 'revolve', 'sweep', 'loft']
+        hole_operations = ['hole', 'drill', 'bore', 'pocket', 'cut']
+        
+        # Analyze command structure
+        requires_sketch = any(op in nl_lower for op in sketch_operations + hole_operations)
+        requires_face_selection = any(op in nl_lower for op in hole_operations + ['on face', 'on surface'])
+        is_geometric_primitive = any(term in nl_lower for term in ['cube', 'box', 'sphere', 'cone'])
+        
+        # Check current state context
+        has_active_body = current_state.get('live_state', {}).get('active_body', False)
+        object_count = current_state.get('object_count', 0)
+        
+        strategy = 'simple'
+        if requires_sketch and not is_geometric_primitive:
+            strategy = 'sketch_then_operate'
+        elif requires_face_selection and object_count > 0:
+            strategy = 'face_selection'
+        elif object_count > 0 and ('add' in nl_lower or 'attach' in nl_lower):
+            strategy = 'multi_step'
+        
+        return {
+            'strategy': strategy,
+            'requires_sketch_then_operate': strategy == 'sketch_then_operate',
+            'requires_face_selection': strategy == 'face_selection',
+            'is_multi_step': strategy == 'multi_step',
+            'needs_active_body': requires_sketch and not has_active_body,
+            'estimated_steps': self._estimate_step_count(nl_command, strategy),
+            'complexity_score': self._calculate_complexity_score(nl_command, current_state)
+        }
+    
+    def _estimate_step_count(self, nl_command: str, strategy: str) -> int:
+        """Estimate number of steps required for the command"""
+        base_steps = {
+            'simple': 1,
+            'sketch_then_operate': 3,  # Create body, sketch, operate
+            'face_selection': 2,       # Select face, perform operation
+            'multi_step': 4            # Multiple operations
+        }
+        
+        # Adjust based on command complexity
+        modifier = 1
+        if 'diameter' in nl_command and 'height' in nl_command:
+            modifier += 1  # More constraints
+        if 'mounting' in nl_command or 'bracket' in nl_command:
+            modifier += 2  # Multiple features
+            
+        return base_steps.get(strategy, 1) * modifier
+    
+    def _calculate_complexity_score(self, nl_command: str, current_state: Dict[str, Any]) -> float:
+        """Calculate complexity score (0-1) for the command"""
+        score = 0.0
+        
+        # Base complexity factors
+        if len(nl_command.split()) > 10:
+            score += 0.2
+        if any(term in nl_command.lower() for term in ['bracket', 'assembly', 'gear', 'housing']):
+            score += 0.3
+        if current_state.get('object_count', 0) > 0:
+            score += 0.2  # Adding to existing design
+        
+        # Advanced features
+        advanced_terms = ['fillet', 'chamfer', 'pattern', 'array', 'mirror']
+        score += 0.1 * sum(1 for term in advanced_terms if term in nl_command.lower())
+        
+        return min(score, 1.0)
+    
+    def _process_sketch_then_operate_workflow(self, nl_command: str, current_state: Dict[str, Any], workflow_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle the core 'Sketch-Then-Operate' workflow
+        
+        Example: "Create a 50mm diameter cylinder that is 100mm tall"
+        Steps:
+        1. Pre-flight state check
+        2. Create/activate PartDesign Body (if needed)
+        3. Create sketch on appropriate plane
+        4. Define sketch geometry with constraints
+        5. Perform operation (Pad, Pocket, etc.)
+        6. Validate final state
+        """
+        print(f"🎯 Starting Sketch-Then-Operate workflow for: {nl_command}")
+        
+        execution_results = []
+        
+        try:
+            # Step 1: Pre-flight state analysis
+            preflight_check = self._preflight_state_check(current_state, workflow_analysis)
+            if not preflight_check['ready']:
+                return {
+                    'status': 'error',
+                    'error': f"Pre-flight check failed: {preflight_check['reason']}",
+                    'suggestion': preflight_check['suggestion']
+                }
+            
+            # Step 2: Ensure PartDesign Body exists and is active
+            if workflow_analysis.get('needs_active_body', False):
+                body_result = self._ensure_active_body()
+                execution_results.append(body_result)
+                if body_result['status'] != 'success':
+                    return body_result
+                
+                # Update state after body creation
+                current_state = self._get_current_state()
+            
+            # Step 3: Analyze geometry requirements
+            geometry_analysis = self._analyze_geometry_requirements(nl_command)
+            
+            # Step 4: Create sketch on appropriate plane
+            sketch_result = self._create_parametric_sketch(geometry_analysis, current_state)
+            execution_results.append(sketch_result)
+            if sketch_result['status'] != 'success':
+                return sketch_result
+            
+            # Update state after sketch creation
+            current_state = self._get_current_state()
+            
+            # Step 5: Perform the operation (Pad, Pocket, etc.)
+            operation_result = self._execute_sketch_operation(geometry_analysis, current_state)
+            execution_results.append(operation_result)
+            
+            # Step 6: Final state validation
+            final_state = self._get_current_state()
+            validation_result = self._validate_final_state(final_state, geometry_analysis)
+            
+            return {
+                'status': 'success' if validation_result['valid'] else 'warning',
+                'workflow': 'sketch_then_operate',
+                'steps_executed': len(execution_results),
+                'execution_results': execution_results,
+                'final_state': final_state,
+                'validation': validation_result,
+                'objects_created': final_state.get('object_count', 0) - current_state.get('object_count', 0)
+            }
+            
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': f"Sketch-Then-Operate workflow failed: {str(e)}",
+                'steps_completed': len(execution_results),
+                'execution_results': execution_results
+            }
+    
+    def _process_standard_workflow(self, nl_command: str, current_state: Dict[str, Any]) -> Dict[str, Any]:
+        """Process commands using standard decomposition workflow"""
+        # Use existing decomposition logic for non-sketch-based commands
+        task_breakdown = self._decompose_task(nl_command, current_state)
+        
+        if not task_breakdown or 'error' in task_breakdown:
+            return {"status": "error", "message": "Failed to decompose task"}
+        
+        print(f"📋 Task broken down into {len(task_breakdown['steps'])} steps")
+        
+        # Execute each step with state updates
+        return self._execute_steps_with_state_updates(task_breakdown['steps'], current_state)
+    
+    def _preflight_state_check(self, current_state: Dict[str, Any], workflow_analysis: Dict[str, Any]) -> Dict[str, bool]:
+        """
+        Perform comprehensive pre-flight checks before starting workflow
+        """
+        checks = {
+            'freecad_connected': self.api_client is not None,
+            'document_available': current_state.get('live_state', {}).get('document_name') is not None,
+            'no_critical_errors': current_state.get('live_state', {}).get('has_errors', True) == False
+        }
+        
+        # Additional checks based on workflow requirements
+        if workflow_analysis.get('needs_active_body'):
+            checks['body_ready'] = True  # We'll create it if needed
+        
+        failed_checks = [check for check, passed in checks.items() if not passed]
+        
+        if failed_checks:
+            return {
+                'ready': False,
+                'reason': f"Failed checks: {', '.join(failed_checks)}",
+                'suggestion': "Check FreeCAD connection and document state"
+            }
+        
+        return {'ready': True}
+    
+    def _ensure_active_body(self) -> Dict[str, Any]:
+        """
+        Ensure an active PartDesign Body exists, create if necessary
+        """
+        print("🏗️ Ensuring active PartDesign Body exists...")
+        
+        body_creation_script = """
+import FreeCAD
+import PartDesign
+
+doc = FreeCAD.ActiveDocument
+if not doc:
+    doc = FreeCAD.newDocument("AutoCAD")
+
+# Check if there's already an active body
+activeBody = None
+for obj in doc.Objects:
+    if hasattr(obj, 'TypeId') and obj.TypeId == 'PartDesign::Body':
+        activeBody = obj
+        break
+
+if not activeBody:
+    # Create new PartDesign Body
+    activeBody = doc.addObject('PartDesign::Body', 'Body')
+    print(f"Created new PartDesign Body: {activeBody.Name}")
+else:
+    print(f"Using existing PartDesign Body: {activeBody.Name}")
+
+# Set as active body
+if hasattr(FreeCAD, 'setActiveDocument'):
+    FreeCAD.setActiveDocument(doc.Name)
+    
+# Recompute document
+doc.recompute()
+print("SUCCESS: Active Body ready")
+"""
+        
+        try:
+            result = self.api_client.execute_command(body_creation_script)
+            return {
+                'status': 'success',
+                'operation': 'ensure_active_body',
+                'result': result
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'operation': 'ensure_active_body',
+                'error': str(e)
+            }
+    
+    def _analyze_geometry_requirements(self, nl_command: str) -> Dict[str, Any]:
+        """
+        Analyze the command to extract geometry requirements
+        
+        Example: "Create a 50mm diameter cylinder that is 100mm tall"
+        Extracts: {'shape': 'cylinder', 'diameter': 50, 'height': 100}
+        """
+        import re
+        
+        geometry = {
+            'shape': 'unknown',
+            'operation': 'pad',  # Default operation
+            'plane': 'XY',       # Default sketch plane
+            'dimensions': {}
+        }
+        
+        nl_lower = nl_command.lower()
+        
+        # Identify shape type
+        if 'cylinder' in nl_lower:
+            geometry['shape'] = 'circle'
+            geometry['operation'] = 'pad'
+        elif 'box' in nl_lower or 'cube' in nl_lower:
+            geometry['shape'] = 'rectangle'
+            geometry['operation'] = 'pad'
+        elif 'hole' in nl_lower:
+            geometry['shape'] = 'circle'
+            geometry['operation'] = 'pocket'
+        
+        # Extract dimensions using regex
+        diameter_match = re.search(r'(\d+(?:\.\d+)?)\s*mm\s+diameter', nl_command)
+        if diameter_match:
+            geometry['dimensions']['diameter'] = float(diameter_match.group(1))
+            geometry['dimensions']['radius'] = float(diameter_match.group(1)) / 2
+        
+        height_match = re.search(r'(\d+(?:\.\d+)?)\s*mm\s+(?:tall|high|height)', nl_command)
+        if height_match:
+            geometry['dimensions']['height'] = float(height_match.group(1))
+        
+        # Extract general dimensions
+        dimension_matches = re.findall(r'(\d+(?:\.\d+)?)\s*mm', nl_command)
+        if dimension_matches and not geometry['dimensions']:
+            dims = [float(d) for d in dimension_matches]
+            if len(dims) >= 2:
+                if geometry['shape'] == 'circle':
+                    geometry['dimensions']['radius'] = dims[0] / 2
+                    geometry['dimensions']['height'] = dims[1]
+                else:
+                    geometry['dimensions']['width'] = dims[0]
+                    geometry['dimensions']['height'] = dims[1] if len(dims) > 1 else dims[0]
+        
+        return geometry
+    
+    def _create_parametric_sketch(self, geometry_analysis: Dict[str, Any], current_state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a parametric sketch based on geometry requirements
+        """
+        print(f"✏️ Creating parametric sketch: {geometry_analysis['shape']}")
+        
+        shape = geometry_analysis['shape']
+        dimensions = geometry_analysis['dimensions']
+        plane = geometry_analysis['plane']
+        
+        if shape == 'circle':
+            return self._create_circle_sketch(dimensions, plane)
+        elif shape == 'rectangle':
+            return self._create_rectangle_sketch(dimensions, plane)
+        else:
+            return {
+                'status': 'error',
+                'error': f"Unsupported shape for sketching: {shape}"
+            }
+    
+    def _create_circle_sketch(self, dimensions: Dict[str, float], plane: str = 'XY') -> Dict[str, Any]:
+        """Create a parametric circle sketch"""
+        radius = dimensions.get('radius', 25.0)  # Default 25mm radius
+        
+        circle_sketch_script = f"""
+import FreeCAD
+import Part
+import Sketcher
+
+doc = FreeCAD.ActiveDocument
+
+# Get active body
+activeBody = None
+for obj in doc.Objects:
+    if hasattr(obj, 'TypeId') and obj.TypeId == 'PartDesign::Body':
+        activeBody = obj
+        break
+
+if not activeBody:
+    raise Exception("No active PartDesign Body found")
+
+# Create sketch on {plane} plane
+sketch = activeBody.newObject('Sketcher::SketchObject', 'Sketch')
+sketch.Support = (doc.getObject('{plane}_Plane'),[''])
+sketch.MapMode = 'FlatFace'
+
+# Add circle at origin
+circle = sketch.addGeometry(Part.Circle(FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(0, 0, 1), {radius}), False)
+
+# Add radius constraint
+sketch.addConstraint(Sketcher.Constraint('Radius', circle, {radius}))
+
+# Add coincident constraint to origin
+sketch.addConstraint(Sketcher.Constraint('Coincident', circle, 3, -1, 1))
+
+# Recompute
+doc.recompute()
+print(f"SUCCESS: Circle sketch created with radius {{radius}}mm")
+"""
+        
+        try:
+            result = self.api_client.execute_command(circle_sketch_script)
+            return {
+                'status': 'success',
+                'operation': 'create_circle_sketch',
+                'dimensions': dimensions,
+                'result': result
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'operation': 'create_circle_sketch',
+                'error': str(e)
+            }
+    
+    def _create_rectangle_sketch(self, dimensions: Dict[str, float], plane: str = 'XY') -> Dict[str, Any]:
+        """Create a parametric rectangle sketch"""
+        width = dimensions.get('width', 20.0)
+        height = dimensions.get('height', 20.0)
+        
+        rectangle_sketch_script = f"""
+import FreeCAD
+import Part
+import Sketcher
+
+doc = FreeCAD.ActiveDocument
+
+# Get active body
+activeBody = None
+for obj in doc.Objects:
+    if hasattr(obj, 'TypeId') and obj.TypeId == 'PartDesign::Body':
+        activeBody = obj
+        break
+
+if not activeBody:
+    raise Exception("No active PartDesign Body found")
+
+# Create sketch on {plane} plane
+sketch = activeBody.newObject('Sketcher::SketchObject', 'Sketch')
+sketch.Support = (doc.getObject('{plane}_Plane'),[''])
+sketch.MapMode = 'FlatFace'
+
+# Add rectangle centered at origin
+x1, y1 = -{width/2}, -{height/2}
+x2, y2 = {width/2}, {height/2}
+
+# Add rectangle lines
+line1 = sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(x1, y1, 0), FreeCAD.Vector(x2, y1, 0)), False)
+line2 = sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(x2, y1, 0), FreeCAD.Vector(x2, y2, 0)), False)
+line3 = sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(x2, y2, 0), FreeCAD.Vector(x1, y2, 0)), False)
+line4 = sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(x1, y2, 0), FreeCAD.Vector(x1, y1, 0)), False)
+
+# Add constraints for rectangle
+sketch.addConstraint(Sketcher.Constraint('Coincident', line1, 2, line2, 1))
+sketch.addConstraint(Sketcher.Constraint('Coincident', line2, 2, line3, 1))
+sketch.addConstraint(Sketcher.Constraint('Coincident', line3, 2, line4, 1))
+sketch.addConstraint(Sketcher.Constraint('Coincident', line4, 2, line1, 1))
+
+# Add dimensional constraints
+sketch.addConstraint(Sketcher.Constraint('DistanceX', line1, {width}))
+sketch.addConstraint(Sketcher.Constraint('DistanceY', line2, {height}))
+
+# Center rectangle at origin
+sketch.addConstraint(Sketcher.Constraint('Symmetric', line1, 1, line1, 2, -1, 1))
+sketch.addConstraint(Sketcher.Constraint('Symmetric', line2, 1, line2, 2, -1, 2))
+
+# Recompute
+doc.recompute()
+print(f"SUCCESS: Rectangle sketch created {{width}}x{{height}}mm")
+"""
+        
+        try:
+            result = self.api_client.execute_command(rectangle_sketch_script)
+            return {
+                'status': 'success',
+                'operation': 'create_rectangle_sketch',
+                'dimensions': dimensions,
+                'result': result
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'operation': 'create_rectangle_sketch',
+                'error': str(e)
+            }
+    
+    def _execute_sketch_operation(self, geometry_analysis: Dict[str, Any], current_state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute the operation on the created sketch (Pad, Pocket, etc.)
+        """
+        operation = geometry_analysis['operation']
+        dimensions = geometry_analysis['dimensions']
+        
+        if operation == 'pad':
+            return self._execute_pad_operation(dimensions)
+        elif operation == 'pocket':
+            return self._execute_pocket_operation(dimensions)
+        else:
+            return {
+                'status': 'error',
+                'error': f"Unsupported operation: {operation}"
+            }
+    
+    def _execute_pad_operation(self, dimensions: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Pad operation on the latest sketch"""
+        height = dimensions.get('height', 10.0)  # Default 10mm height
+        
+        pad_script = f"""
+import FreeCAD
+import PartDesign
+
+doc = FreeCAD.ActiveDocument
+
+# Get active body
+activeBody = None
+for obj in doc.Objects:
+    if hasattr(obj, 'TypeId') and obj.TypeId == 'PartDesign::Body':
+        activeBody = obj
+        break
+
+if not activeBody:
+    raise Exception("No active PartDesign Body found")
+
+# Find the latest sketch
+latest_sketch = None
+for obj in activeBody.Group:
+    if hasattr(obj, 'TypeId') and obj.TypeId == 'Sketcher::SketchObject':
+        latest_sketch = obj
+
+if not latest_sketch:
+    raise Exception("No sketch found for Pad operation")
+
+# Create Pad feature
+pad = activeBody.newObject('PartDesign::Pad', 'Pad')
+pad.Profile = latest_sketch
+pad.Length = {height}
+pad.Type = 0  # Length type
+
+# Recompute
+doc.recompute()
+print(f"SUCCESS: Pad created with height {{height}}mm")
+"""
+        
+        try:
+            result = self.api_client.execute_command(pad_script)
+            return {
+                'status': 'success',
+                'operation': 'pad',
+                'height': height,
+                'result': result
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'operation': 'pad',
+                'error': str(e)
+            }
+    
+    def _execute_pocket_operation(self, dimensions: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Pocket operation on the latest sketch"""
+        depth = dimensions.get('depth', dimensions.get('height', 5.0))  # Default 5mm depth
+        
+        pocket_script = f"""
+import FreeCAD
+import PartDesign
+
+doc = FreeCAD.ActiveDocument
+
+# Get active body
+activeBody = None
+for obj in doc.Objects:
+    if hasattr(obj, 'TypeId') and obj.TypeId == 'PartDesign::Body':
+        activeBody = obj
+        break
+
+if not activeBody:
+    raise Exception("No active PartDesign Body found")
+
+# Find the latest sketch
+latest_sketch = None
+for obj in activeBody.Group:
+    if hasattr(obj, 'TypeId') and obj.TypeId == 'Sketcher::SketchObject':
+        latest_sketch = obj
+
+if not latest_sketch:
+    raise Exception("No sketch found for Pocket operation")
+
+# Create Pocket feature
+pocket = activeBody.newObject('PartDesign::Pocket', 'Pocket')
+pocket.Profile = latest_sketch
+pocket.Length = {depth}
+pocket.Type = 0  # Length type
+
+# Recompute
+doc.recompute()
+print(f"SUCCESS: Pocket created with depth {{depth}}mm")
+"""
+        
+        try:
+            result = self.api_client.execute_command(pocket_script)
+            return {
+                'status': 'success',
+                'operation': 'pocket',
+                'depth': depth,
+                'result': result
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'operation': 'pocket',
+                'error': str(e)
+            }
+    
+    def _validate_final_state(self, final_state: Dict[str, Any], geometry_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate that the final state meets expectations
+        """
+        validation = {
+            'valid': True,
+            'issues': [],
+            'quality_score': 1.0
+        }
+        
+        live_state = final_state.get('live_state', {})
+        
+        # Check for errors
+        if live_state.get('has_errors', False):
+            validation['valid'] = False
+            validation['issues'].append("Document contains errors")
+            validation['quality_score'] -= 0.3
+        
+        # Check if operation created objects
+        object_count = final_state.get('object_count', 0)
+        if object_count == 0:
+            validation['valid'] = False
+            validation['issues'].append("No objects created")
+            validation['quality_score'] -= 0.5
+        
+        # Check operation-specific requirements
+        operation = geometry_analysis.get('operation', 'unknown')
+        if operation == 'pad' and not live_state.get('has_pad', False):
+            validation['issues'].append("Pad operation may have failed")
+            validation['quality_score'] -= 0.2
+        
+        return validation
     
     def _decompose_task(self, nl_command: str, current_state: Dict[str, Any]) -> Dict[str, Any]:
         """
