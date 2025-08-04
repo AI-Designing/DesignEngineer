@@ -1073,3 +1073,113 @@ doc.recompute()"""
                 }
             ]
         }
+    
+    def _execute_steps_with_state_updates(self, steps: list, initial_state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute a list of steps with state updates between each step
+        This is the original workflow execution method
+        """
+        execution_results = []
+        current_state = initial_state
+        successful_operations = 0
+        
+        print(f"🔄 Executing {len(steps)} steps with state updates...")
+        
+        for i, step in enumerate(steps, 1):
+            print(f"\n🎯 Step {i}/{len(steps)}: {step.get('description', 'Unknown step')}")
+            
+            try:
+                # Execute the step
+                if self.command_executor:
+                    # Try using the command executor
+                    result = self.command_executor.execute_intelligent(step.get('description', ''))
+                else:
+                    # Fallback to direct LLM generation
+                    result = self._execute_step_with_llm(step, current_state)
+                
+                if result and result.get('success', False):
+                    successful_operations += 1
+                    print(f"✅ Step {i} completed successfully")
+                else:
+                    print(f"⚠️ Step {i} completed with issues: {result.get('error', 'Unknown error')}")
+                
+                execution_results.append({
+                    'step': i,
+                    'description': step.get('description', ''),
+                    'result': result,
+                    'status': 'success' if result and result.get('success', False) else 'error'
+                })
+                
+                # Update state after each step
+                try:
+                    current_state = self._get_current_state()
+                    self._cache_state_update(current_state, f"after_step_{i}")
+                except Exception as state_error:
+                    print(f"⚠️ Warning: Could not update state after step {i}: {state_error}")
+                
+            except Exception as e:
+                print(f"❌ Step {i} failed: {str(e)}")
+                execution_results.append({
+                    'step': i,
+                    'description': step.get('description', ''),
+                    'result': {'error': str(e), 'success': False},
+                    'status': 'error'
+                })
+        
+        # Final state update
+        final_state = self._get_current_state()
+        
+        return {
+            'status': 'success' if successful_operations > 0 else 'error',
+            'workflow': 'standard_decomposition',
+            'total_steps': len(steps),
+            'successful_operations': successful_operations,
+            'execution_results': execution_results,
+            'initial_state': initial_state,
+            'final_state': final_state,
+            'objects_created': final_state.get('object_count', 0) - initial_state.get('object_count', 0)
+        }
+    
+    def _execute_step_with_llm(self, step: Dict[str, Any], current_state: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a single step using LLM command generation"""
+        try:
+            description = step.get('description', 'Unknown task')
+            
+            # Generate FreeCAD code using LLM
+            llm_result = self.llm_client.generate_command(
+                prompt=f"Create FreeCAD Python code to: {description}",
+                current_state=current_state
+            )
+            
+            if llm_result and 'command' in llm_result:
+                # Execute the generated command
+                api_result = self.api_client.execute_command(llm_result['command'])
+                return {
+                    'success': True,
+                    'llm_result': llm_result,
+                    'api_result': api_result,
+                    'step_description': description
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'LLM failed to generate command',
+                    'step_description': description
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'step_description': step.get('description', 'Unknown task')
+            }
+    
+    def _cache_state_update(self, state: Dict[str, Any], checkpoint_name: str):
+        """Cache state update with checkpoint name"""
+        try:
+            if self.state_cache:
+                cache_key = f"{self.session_id}_{checkpoint_name}_{int(time.time())}"
+                self.state_cache.store_state(cache_key, state)
+                print(f"📦 State cached at checkpoint: {checkpoint_name}")
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to cache state at {checkpoint_name}: {e}")
