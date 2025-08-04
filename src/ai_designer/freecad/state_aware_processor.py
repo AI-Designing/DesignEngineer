@@ -6,6 +6,7 @@ and using Redis state for intelligent decision making.
 
 import json
 import time
+import re
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
@@ -21,6 +22,17 @@ class StateAwareCommandProcessor:
         self.api_client = api_client
         self.command_executor = command_executor
         self.session_id = f"session_{int(time.time())}"
+        
+        # Initialize face selection engine for Phase 2
+        try:
+            from .face_selection_engine import FaceDetectionEngine, FaceSelector
+            self.face_detector = FaceDetectionEngine(api_client)
+            self.face_selector = FaceSelector(self.face_detector)
+            self.face_selection_available = True
+            print("✅ Face selection engine initialized")
+        except ImportError as e:
+            print(f"⚠️ Face selection engine not available: {e}")
+            self.face_selection_available = False
         
     def process_complex_command(self, nl_command: str) -> Dict[str, Any]:
         """
@@ -46,6 +58,8 @@ class StateAwareCommandProcessor:
             # Step 3: Use appropriate processing strategy
             if workflow_analysis.get('requires_sketch_then_operate', False):
                 return self._process_sketch_then_operate_workflow(nl_command, current_state, workflow_analysis)
+            elif workflow_analysis.get('requires_face_selection', False):
+                return self._process_face_selection_workflow(nl_command, current_state, workflow_analysis)
             else:
                 return self._process_standard_workflow(nl_command, current_state)
                 
@@ -124,6 +138,10 @@ class StateAwareCommandProcessor:
             strategy = 'face_selection'
         elif object_count > 0 and ('add' in nl_lower or 'attach' in nl_lower):
             strategy = 'multi_step'
+        
+        # Override: If we have existing objects and are adding holes/pockets, use face selection
+        if object_count > 0 and any(op in nl_lower for op in hole_operations):
+            strategy = 'face_selection'
         
         return {
             'strategy': strategy,
@@ -246,7 +264,348 @@ class StateAwareCommandProcessor:
                 'execution_results': execution_results
             }
     
-    def _process_standard_workflow(self, nl_command: str, current_state: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_face_selection_workflow(self, nl_command: str, current_state: Dict[str, Any], workflow_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle the 'Face Selection & Operations' workflow
+        
+        Example: "Add a 10mm diameter hole on the top face"
+        Steps:
+        1. Check face selection availability
+        2. Analyze operation requirements  
+        3. Detect and select appropriate face
+        4. Create operation geometry
+        5. Execute operation on selected face
+        6. Validate final state
+        """
+        print(f"🎯 Starting Face Selection workflow for: {nl_command}")
+        
+        execution_results = []
+        
+        try:
+            # Step 1: Check if face selection is available
+            if not self.face_selection_available:
+                return {
+                    'status': 'error',
+                    'error': 'Face selection engine not available',
+                    'suggestion': 'Face selection features require Phase 2 components'
+                }
+            
+            # Step 2: Analyze operation requirements
+            operation_analysis = self._analyze_face_operation_requirements(nl_command)
+            execution_results.append({
+                'step': 'operation_analysis',
+                'status': 'success',
+                'analysis': operation_analysis
+            })
+            
+            # Step 3: Get existing objects for face detection
+            existing_objects = [obj.get('name', '') for obj in current_state.get('objects', [])]
+            if not existing_objects:
+                return {
+                    'status': 'error',
+                    'error': 'No existing objects found for face selection',
+                    'suggestion': 'Create some geometry first before adding holes or pockets'
+                }
+            
+            # Step 4: Select appropriate face
+            face_selection_result = self._select_operation_face(
+                existing_objects, 
+                operation_analysis['operation_type'],
+                operation_analysis.get('face_criteria', '')
+            )
+            execution_results.append(face_selection_result)
+            
+            if face_selection_result['status'] != 'success':
+                return face_selection_result
+            
+            # Step 5: Create operation geometry
+            geometry_result = self._create_face_operation_geometry(
+                operation_analysis, 
+                face_selection_result['selected_face']
+            )
+            execution_results.append(geometry_result)
+            
+            if geometry_result['status'] != 'success':
+                return geometry_result
+            
+            # Step 6: Execute operation
+            operation_result = self._execute_face_operation(
+                operation_analysis,
+                face_selection_result['selected_face'],
+                geometry_result['geometry']
+            )
+            execution_results.append(operation_result)
+            
+            # Step 7: Final state validation
+            final_state = self._get_current_state()
+            validation_result = self._validate_face_operation_result(final_state, operation_analysis)
+            
+            return {
+                'status': 'success' if validation_result['valid'] else 'warning',
+                'workflow': 'face_selection',
+                'steps_executed': len(execution_results),
+                'execution_results': execution_results,
+                'selected_face': face_selection_result.get('selected_face'),
+                'operation_type': operation_analysis['operation_type'],
+                'final_state': final_state,
+                'validation': validation_result
+            }
+            
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': f"Face selection workflow failed: {str(e)}",
+                'steps_completed': len(execution_results),
+                'execution_results': execution_results
+            }
+    
+    def _analyze_face_operation_requirements(self, nl_command: str) -> Dict[str, Any]:
+        """
+        Analyze face-specific operation requirements
+        
+        Examples:
+        - "Add a 10mm hole on the top face" 
+        - "Create a pocket in the center"
+        - "Drill 4 holes in a square pattern"
+        """
+        operation = {
+            'operation_type': 'hole',  # Default
+            'dimensions': {},
+            'face_criteria': '',
+            'positioning': 'center',
+            'count': 1,
+            'pattern_type': None
+        }
+        
+        nl_lower = nl_command.lower()
+        
+        # Determine operation type
+        if any(word in nl_lower for word in ['hole', 'drill', 'bore']):
+            operation['operation_type'] = 'hole'
+        elif any(word in nl_lower for word in ['pocket', 'cut', 'remove']):
+            operation['operation_type'] = 'pocket'
+        elif any(word in nl_lower for word in ['pattern', 'array']):
+            operation['operation_type'] = 'pattern'
+        
+        # Extract dimensions
+        diameter_match = re.search(r'(\d+(?:\.\d+)?)\s*mm\s+(?:diameter|hole)', nl_command)
+        if diameter_match:
+            operation['dimensions']['diameter'] = float(diameter_match.group(1))
+            operation['dimensions']['radius'] = float(diameter_match.group(1)) / 2
+        
+        depth_match = re.search(r'(\d+(?:\.\d+)?)\s*mm\s+(?:deep|depth)', nl_command)
+        if depth_match:
+            operation['dimensions']['depth'] = float(depth_match.group(1))
+        
+        # Extract face criteria
+        face_keywords = ['top', 'bottom', 'front', 'back', 'left', 'right', 'center', 'large', 'flat']
+        for keyword in face_keywords:
+            if keyword in nl_lower:
+                operation['face_criteria'] += f"{keyword} "
+        
+        operation['face_criteria'] = operation['face_criteria'].strip()
+        
+        # Extract count and pattern info
+        count_match = re.search(r'(\d+)\s+holes?', nl_command)
+        if count_match:
+            operation['count'] = int(count_match.group(1))
+            if operation['count'] > 1:
+                operation['pattern_type'] = 'linear'  # Default pattern
+        
+        return operation
+    
+    def _select_operation_face(self, objects: List[str], operation_type: str, face_criteria: str) -> Dict[str, Any]:
+        """Select the best face for the operation"""
+        try:
+            selected_face = self.face_selector.select_optimal_face(
+                objects, operation_type, face_criteria
+            )
+            
+            if selected_face:
+                return {
+                    'status': 'success',
+                    'step': 'face_selection',
+                    'selected_face': {
+                        'object_name': selected_face.object_name,
+                        'face_id': selected_face.face_id,
+                        'face_type': selected_face.face_type.value,
+                        'area': selected_face.area,
+                        'center': selected_face.center,
+                        'normal': selected_face.normal,
+                        'suitability_score': selected_face.suitability_score
+                    }
+                }
+            else:
+                return {
+                    'status': 'error',
+                    'step': 'face_selection',
+                    'error': 'No suitable face found for operation'
+                }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'step': 'face_selection',
+                'error': f"Face selection failed: {str(e)}"
+            }
+    
+    def _create_face_operation_geometry(self, operation_analysis: Dict, selected_face: Dict) -> Dict[str, Any]:
+        """Create geometry for the face operation"""
+        try:
+            geometry = {
+                'operation_type': operation_analysis['operation_type'],
+                'dimensions': operation_analysis['dimensions'],
+                'position': selected_face['center'],
+                'normal': selected_face['normal']
+            }
+            
+            # Add operation-specific geometry
+            if operation_analysis['operation_type'] == 'hole':
+                geometry['profile'] = 'circle'
+                geometry['radius'] = operation_analysis['dimensions'].get('radius', 2.5)  # Default 5mm diameter
+                geometry['depth'] = operation_analysis['dimensions'].get('depth', 10.0)   # Default 10mm deep
+            
+            elif operation_analysis['operation_type'] == 'pocket':
+                geometry['profile'] = 'rectangle'
+                geometry['width'] = operation_analysis['dimensions'].get('width', 20.0)
+                geometry['height'] = operation_analysis['dimensions'].get('height', 20.0)
+                geometry['depth'] = operation_analysis['dimensions'].get('depth', 5.0)
+            
+            return {
+                'status': 'success',
+                'step': 'geometry_creation',
+                'geometry': geometry
+            }
+            
+        except Exception as e:
+            return {
+                'status': 'error',
+                'step': 'geometry_creation',
+                'error': f"Geometry creation failed: {str(e)}"
+            }
+    
+    def _execute_face_operation(self, operation_analysis: Dict, selected_face: Dict, geometry: Dict) -> Dict[str, Any]:
+        """Execute the operation on the selected face"""
+        try:
+            if geometry['operation_type'] == 'hole':
+                return self._execute_hole_on_face(selected_face, geometry)
+            elif geometry['operation_type'] == 'pocket':
+                return self._execute_pocket_on_face(selected_face, geometry)
+            else:
+                return {
+                    'status': 'error',
+                    'step': 'operation_execution',
+                    'error': f"Unsupported operation type: {geometry['operation_type']}"
+                }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'step': 'operation_execution',
+                'error': f"Operation execution failed: {str(e)}"
+            }
+    
+    def _execute_hole_on_face(self, selected_face: Dict, geometry: Dict) -> Dict[str, Any]:
+        """Execute hole drilling on selected face"""
+        radius = geometry.get('radius', 2.5)
+        depth = geometry.get('depth', 10.0)
+        position = geometry.get('position', [0, 0, 0])
+        
+        hole_script = f"""
+import FreeCAD
+import PartDesign
+import Sketcher
+import Part
+
+doc = FreeCAD.ActiveDocument
+
+# Get the target object
+target_obj = doc.getObject('{selected_face['object_name']}')
+if not target_obj:
+    raise Exception("Target object not found")
+
+# Get active body or create one
+activeBody = None
+for obj in doc.Objects:
+    if hasattr(obj, 'TypeId') and obj.TypeId == 'PartDesign::Body':
+        activeBody = obj
+        break
+
+if not activeBody:
+    activeBody = doc.addObject('PartDesign::Body', 'Body')
+
+# Create sketch for hole on the selected face
+sketch = activeBody.newObject('Sketcher::SketchObject', 'HoleSketch')
+
+# Map sketch to the selected face
+# Note: In real implementation, we'd use the actual face reference
+sketch.MapMode = 'FlatFace'
+
+# Create circle for hole
+circle = sketch.addGeometry(Part.Circle(FreeCAD.Vector({position[0]}, {position[1]}, 0), FreeCAD.Vector(0, 0, 1), {radius}), False)
+
+# Add radius constraint
+sketch.addConstraint(Sketcher.Constraint('Radius', circle, {radius}))
+
+# Create pocket (hole) feature
+pocket = activeBody.newObject('PartDesign::Pocket', 'Hole')
+pocket.Profile = sketch
+pocket.Length = {depth}
+pocket.Type = 0  # Length type
+
+# Recompute
+doc.recompute()
+print(f"SUCCESS: Hole created - radius {radius}mm, depth {depth}mm")
+"""
+        
+        try:
+            result = self.api_client.execute_command(hole_script)
+            return {
+                'status': 'success',
+                'step': 'hole_execution',
+                'operation': 'hole',
+                'parameters': {'radius': radius, 'depth': depth},
+                'result': result
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'step': 'hole_execution',
+                'error': str(e)
+            }
+    
+    def _execute_pocket_on_face(self, selected_face: Dict, geometry: Dict) -> Dict[str, Any]:
+        """Execute pocket creation on selected face"""
+        width = geometry.get('width', 20.0)
+        height = geometry.get('height', 20.0) 
+        depth = geometry.get('depth', 5.0)
+        
+        # Use existing pocket operation but with face-specific positioning
+        return self._execute_pocket_operation({'depth': depth, 'width': width, 'height': height})
+    
+    def _validate_face_operation_result(self, final_state: Dict, operation_analysis: Dict) -> Dict[str, Any]:
+        """Validate the result of face operation"""
+        validation = {
+            'valid': True,
+            'issues': [],
+            'quality_score': 1.0
+        }
+        
+        # Check basic state validity
+        live_state = final_state.get('live_state', {})
+        
+        if live_state.get('has_errors', False):
+            validation['valid'] = False
+            validation['issues'].append("Document contains errors after operation")
+            validation['quality_score'] -= 0.3
+        
+        # Check operation-specific results
+        operation_type = operation_analysis.get('operation_type', 'unknown')
+        if operation_type == 'hole':
+            # Check if pocket/hole was created
+            if not live_state.get('has_pocket', False):
+                validation['issues'].append("Hole operation may not have completed")
+                validation['quality_score'] -= 0.2
+        
+        return validation
         """Process commands using standard decomposition workflow"""
         # Use existing decomposition logic for non-sketch-based commands
         task_breakdown = self._decompose_task(nl_command, current_state)
