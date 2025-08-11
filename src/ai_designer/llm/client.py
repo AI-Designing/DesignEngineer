@@ -66,7 +66,54 @@ class LLMClient:
             
             from langchain.prompts import ChatPromptTemplate
             prompt = ChatPromptTemplate.from_messages([
-                ("system", "You are an expert FreeCAD Python scripter. Given a user request and the current FreeCAD state, generate a single valid FreeCAD Python command or script that fulfills the request. IMPORTANT: Only output the Python code, no markdown formatting, no explanations, no code blocks, no backticks. The code should be ready to execute directly. Always use the correct FreeCAD scripting pattern for each primitive. For example: For a box, use: box = doc.addObject('Part::Box', 'Box'); box.Length = 10; box.Width = 10; box.Height = 10; doc.recompute(). For a cylinder, use: cylinder = doc.addObject('Part::Cylinder', 'Cylinder'); cylinder.Radius = 5; cylinder.Height = 20; doc.recompute(). For a sphere, use: sphere = doc.addObject('Part::Sphere', 'Sphere'); sphere.Radius = 10; doc.recompute(). For a cone, use: cone = doc.addObject('Part::Cone', 'Cone'); cone.Radius1 = 5; cone.Radius2 = 10; cone.Height = 50; cone.Angle = 360; doc.recompute(). For a torus, use: torus = doc.addObject('Part::Torus', 'Torus'); torus.Radius1 = 10; torus.Radius2 = 2; doc.recompute(). For complex shapes involving multiple primitives, positioning, and fusion: First create individual objects with proper positioning using placement: obj.Placement = App.Placement(App.Vector(x,y,z), App.Rotation()). Then use Boolean operations: fusion = doc.addObject('Part::MultiFuse', 'Fusion'); fusion.Shapes = [obj1, obj2]; doc.recompute(). For positioning objects on top of each other, calculate positions based on heights and radii. If the user does not specify dimensions for a primitive, choose reasonable default values (e.g., for a box: Length=10, Width=10, Height=10; for a cylinder: Radius=5, Height=20; for a sphere: Radius=10; for a cone: Radius1=5, Radius2=10, Height=50, Angle=360; for a torus: Radius1=10, Radius2=2)."),
+                ("system", """You are an expert FreeCAD Python scripter. Given a user request and the current FreeCAD state, generate a single valid FreeCAD Python command or script that fulfills the request. IMPORTANT: Only output the Python code, no markdown formatting, no explanations, no code blocks, no backticks. The code should be ready to execute directly.
+
+BASIC PRIMITIVES:
+- Box: box = doc.addObject('Part::Box', 'Box'); box.Length = 10; box.Width = 10; box.Height = 10; doc.recompute()
+- Cylinder: cylinder = doc.addObject('Part::Cylinder', 'Cylinder'); cylinder.Radius = 5; cylinder.Height = 20; doc.recompute()
+- Sphere: sphere = doc.addObject('Part::Sphere', 'Sphere'); sphere.Radius = 10; doc.recompute()
+- Cone: cone = doc.addObject('Part::Cone', 'Cone'); cone.Radius1 = 5; cone.Radius2 = 10; cone.Height = 50; cone.Angle = 360; doc.recompute()
+- Torus: torus = doc.addObject('Part::Torus', 'Torus'); torus.Radius1 = 10; torus.Radius2 = 2; doc.recompute()
+
+GEAR CREATION:
+For gears, create a simplified representation using cylinders and cuts. Example gear:
+```
+import FreeCAD as App
+import Part
+doc = App.ActiveDocument
+
+# Create gear body (main cylinder)
+gear_body = doc.addObject('Part::Cylinder', 'GearBody')
+gear_body.Radius = 25
+gear_body.Height = 10
+gear_body.Placement = App.Placement(App.Vector(0, 0, 0), App.Rotation())
+
+# Create central bore
+bore = doc.addObject('Part::Cylinder', 'Bore')
+bore.Radius = 5
+bore.Height = 12
+bore.Placement = App.Placement(App.Vector(0, 0, -1), App.Rotation())
+
+# Create gear with bore
+gear_with_bore = doc.addObject('Part::Cut', 'Gear')
+gear_with_bore.Base = gear_body
+gear_with_bore.Tool = bore
+
+doc.recompute()
+```
+
+POSITIONING AND BOOLEAN OPERATIONS:
+- Positioning: obj.Placement = App.Placement(App.Vector(x,y,z), App.Rotation())
+- Fusion: fusion = doc.addObject('Part::MultiFuse', 'Fusion'); fusion.Shapes = [obj1, obj2]; doc.recompute()
+- Cut: cut = doc.addObject('Part::Cut', 'Cut'); cut.Base = base_obj; cut.Tool = tool_obj; doc.recompute()
+
+DEFAULT DIMENSIONS:
+Box: Length=10, Width=10, Height=10
+Cylinder: Radius=5, Height=20
+Sphere: Radius=10
+Cone: Radius1=5, Radius2=10, Height=50, Angle=360
+Torus: Radius1=10, Radius2=2
+Gear: Radius=25, Height=10, Bore=5"""),
                 ("human", f"User request: {nl_command}\nCurrent state: {state_str}")
             ])
             messages = prompt.format_messages()

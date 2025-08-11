@@ -141,31 +141,23 @@ class FreeCADCLI:
                 break
 
     def execute_command(self, command):
-        """Execute a single command"""
+        """Execute a single command using Phase 2 & 3 advanced workflows"""
         try:
-            # Check if this is a complex shape request
-            command_lower = command.lower()
-            complex_keywords = [
-                "complex", "combine", "together", "and", "with", 
-                "tower", "rocket", "structure", "building", "assembly"
-            ]
+            print(f"🧠 Processing with Phase 2 & 3 workflows: {command}")
             
-            # Check for multiple shape words in one command
-            shape_words = ["cone", "cylinder", "box", "sphere", "cube"]
-            shape_count = sum(1 for shape in shape_words if shape in command_lower)
-            
-            # Detect complex shape requests
-            is_complex = (
-                any(keyword in command_lower for keyword in complex_keywords) or
-                shape_count > 1 or
-                ("create" in command_lower and len(command.split()) > 5)
-            )
-            
-            if is_complex:
-                print("🔧 Detected complex shape request - using multi-step approach")
-                self.execute_complex_shape(command)
+            # Use StateAwareCommandProcessor for all commands
+            if hasattr(self.command_executor, 'state_aware_processor') and self.command_executor.state_aware_processor:
+                print("🎯 Using advanced State-Aware Processing (Phase 2 & 3)")
+                
+                # Let the state-aware processor handle workflow detection and execution
+                result = self.command_executor.state_aware_processor.process_complex_command(command)
+                
+                # Display detailed workflow results
+                self._display_workflow_results(result, command)
+                
             else:
-                # Single operation
+                print("⚠️ Falling back to basic processing")
+                # Fallback to basic processing
                 if command.startswith('!'):
                     # Direct FreeCAD Python command
                     freecad_command = command[1:]
@@ -181,6 +173,113 @@ class FreeCADCLI:
                 
         except Exception as e:
             print(f"✗ Exception: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _display_workflow_results(self, result, original_command):
+        """Display detailed results from Phase 2 & 3 workflow processing"""
+        print(f"\n📊 Workflow Execution Results:")
+        print("=" * 50)
+        
+        status = result.get('status', 'unknown')
+        workflow_type = result.get('workflow', 'unknown')
+        
+        # Status with emoji
+        status_emoji = "✅" if status == 'success' else "❌" if status == 'error' else "⚠️"
+        print(f"Status: {status_emoji} {status.upper()}")
+        print(f"Workflow: {workflow_type}")
+        print(f"Command: {original_command}")
+        
+        # Phase 2: Face Selection Results
+        if workflow_type == 'face_selection':
+            print(f"\n🎯 Phase 2 - Face Selection Workflow:")
+            selected_face = result.get('selected_face')
+            if selected_face:
+                print(f"  • Selected Face: {selected_face.get('object_name', 'Unknown')}")
+                print(f"  • Face Type: {selected_face.get('face_type', 'Unknown')}")
+                print(f"  • Suitability Score: {selected_face.get('suitability_score', 0):.2f}")
+            
+            operation_type = result.get('operation_type', 'Unknown')
+            print(f"  • Operation: {operation_type}")
+        
+        # Phase 3: Complex Workflow Results
+        elif workflow_type == 'complex_workflow':
+            print(f"\n🏗️ Phase 3 - Complex Multi-Step Workflow:")
+            total_steps = result.get('total_steps', 0)
+            completed_steps = result.get('completed_steps', 0)
+            failed_steps = result.get('failed_steps', 0)
+            execution_time = result.get('execution_time', 0)
+            complexity_score = result.get('complexity_score', 0)
+            
+            print(f"  • Total Steps: {total_steps}")
+            print(f"  • Completed: {completed_steps}")
+            print(f"  • Failed: {failed_steps}")
+            print(f"  • Execution Time: {execution_time:.2f}s")
+            print(f"  • Complexity Score: {complexity_score:.2f}")
+            
+            # Show step details
+            step_results = result.get('step_results', [])
+            if step_results:
+                print(f"\n  🔧 Step Details:")
+                for i, step in enumerate(step_results, 1):
+                    if hasattr(step, 'status'):
+                        step_status = "✅" if step.status == 'success' else "❌"
+                        step_name = getattr(step, 'step_name', f'Step {i}')
+                    else:
+                        step_status = "✅" if step.get('status') == 'success' else "❌"
+                        step_name = step.get('step_name', f'Step {i}')
+                    print(f"    {step_status} {step_name}")
+        
+        # Phase 1: Sketch-Then-Operate Results
+        elif workflow_type == 'sketch_then_operate':
+            print(f"\n✏️ Phase 1 - Sketch-Then-Operate Workflow:")
+            objects_created = result.get('objects_created', 0)
+            print(f"  • Objects Created: {objects_created}")
+            
+            validation = result.get('validation', {})
+            if validation:
+                quality_score = validation.get('quality_score', 0)
+                print(f"  • Quality Score: {quality_score:.2f}")
+                
+                issues = validation.get('issues', [])
+                if issues:
+                    print(f"  • Issues: {', '.join(issues)}")
+        
+        # Multi-step workflow results
+        elif workflow_type == 'multi_step':
+            print(f"\n🔄 Multi-Step Workflow:")
+            steps_executed = result.get('steps_executed', 0)
+            print(f"  • Steps Executed: {steps_executed}")
+        
+        # Show execution results
+        execution_results = result.get('execution_results', [])
+        if execution_results:
+            print(f"\n📋 Execution Steps:")
+            for i, exec_result in enumerate(execution_results, 1):
+                step_status = "✅" if exec_result.get('status') == 'success' else "❌"
+                operation = exec_result.get('operation', f'Step {i}')
+                print(f"  {step_status} {operation}")
+        
+        # Final state summary
+        final_state = result.get('final_state', {})
+        if final_state:
+            object_count = final_state.get('object_count', 0)
+            print(f"\n📈 Final State: {object_count} objects in document")
+        
+        # Success message
+        if status == 'success':
+            print(f"\n🎉 SUCCESS: Advanced workflow completed!")
+            if workflow_type == 'complex_workflow':
+                print(f"✅ Phase 3 complex multi-step workflow executed")
+            elif workflow_type == 'face_selection':
+                print(f"✅ Phase 2 intelligent face selection performed")
+            elif workflow_type == 'sketch_then_operate':
+                print(f"✅ Phase 1 sketch-then-operate workflow completed")
+        else:
+            print(f"\n❌ FAILED: {result.get('error', 'Unknown error')}")
+            suggestion = result.get('suggestion', '')
+            if suggestion:
+                print(f"💡 Suggestion: {suggestion}")
 
     def execute_script(self, script_path):
         """Execute a FreeCAD script file"""
@@ -238,20 +337,38 @@ class FreeCADCLI:
     def show_help(self):
         """Show help information"""
         help_text = """
+🚀 Phase 2 & 3 Enhanced FreeCAD CLI - Advanced Workflow System
+
 Available Commands:
-  Natural Language:
-    - create box 10x20x30        Create a box with dimensions
-    - create cylinder radius 5   Create a cylinder
-    - create sphere radius 10    Create a sphere
-    - save document as myfile    Save document
-    - export stl as output       Export to STL
+  🎯 Smart Natural Language Processing:
+    - create box 10x20x30                    Create a box with dimensions
+    - create cylinder radius 5               Create a cylinder  
+    - create sphere radius 10                Create a sphere
+    - add hole on top face                   Phase 2: Intelligent face selection
+    - create bracket with mounting holes     Phase 3: Complex multi-step workflow
+    - design gear with hub and fillets       Phase 3: Advanced feature generation
+    - build assembly with multiple parts     Phase 3: Complex assembly workflow
   
-  🏗️  Complex Shapes:
-    - create a cone and cylinder together    Multi-step shape creation
-    - build a tower with cone roof          Architectural structure
-    - make a rocket with fins               Complex assembly
-    - create complex building structure     Multi-component design
-    - complex / examples                    Show complex shape examples
+  🏗️ Phase 3 - Complex Multi-Step Workflows:
+    - create a bracket with 4 mounting holes and fillets
+    - design a gear housing with cover and mounting features  
+    - build a complex mechanical assembly with patterns
+    - create architectural structure with multiple levels
+    - make a planetary gear system with sun, planet, and ring gears
+    - design a tower with base, pillars, and roof
+    - create a rocket with body, nose cone, and fins
+  
+  🎯 Phase 2 - Intelligent Face Selection & Operations:
+    - add 10mm hole on the top face          Smart face detection
+    - create pocket in the center            Optimal face selection
+    - drill 4 holes in square pattern        Pattern on selected face
+    - add mounting holes on flat surface     Surface analysis
+    - create slots on the side face          Face type recognition
+  
+  ✏️ Phase 1 - Sketch-Then-Operate (Enhanced):
+    - create 50mm diameter cylinder 100mm tall    Parametric sketch creation
+    - make rectangular base 100x50x10mm           Constraint-based modeling
+    - design L-shaped bracket with dimensions     Complex sketch geometry
   
   Direct FreeCAD Commands (prefix with !):
     - !box = doc.addObject("Part::Box", "MyBox")
@@ -273,27 +390,55 @@ Available Commands:
     - help                      Show this help
     - quit                      Exit
 
-  🏗️  Complex Shape Features:
-    🔧 Multi-step Processing     Automatically breaks complex requests into steps
-    🎯 Smart Detection          Recognizes when multiple operations are needed
-    🔄 Sequential Execution     Executes operations in logical order
-    ⚡ Auto-fusion              Automatically combines related components
-    📐 Positioning Logic        Intelligently positions components relative to each other
+🚀 Advanced Workflow Features (Phase 2 & 3):
 
-  GUI Features:
-    🖥️  Auto-open in GUI        Automatically opens created objects in FreeCAD GUI
-    👁️  Visual Inspection       View your 3D models with proper camera positioning
-    🎯 Fit All Objects          Automatically fits all objects in the viewport
-    📐 Isometric View           Sets optimal viewing angle for 3D models
+  🎯 Phase 2 - Face Selection Engine:
+    ✅ Intelligent Face Detection    Automatically finds suitable faces
+    ✅ Face Type Recognition         Distinguishes flat, curved, complex faces
+    ✅ Suitability Scoring          Ranks faces by operation compatibility
+    ✅ Surface Area Analysis         Considers face size for operations
+    ✅ Normal Vector Calculation     Determines face orientation
+    ✅ Smart Hole Placement          Optimal positioning for holes/pockets
 
-  State Analysis Features:
-    ✅ Pad Created              Check if document has Pad objects
-    ✅ Face Available           Check if faces are available for operations
-    ✅ Active Body              Check if there's an active PartDesign body
-    ✅ Sketch Plane Ready       Check if sketches are mapped to planes
-    ✅ Constrained Base Sketch  Check if sketches are fully constrained
-    ✅ Safe References          Check external reference integrity
-    ✅ No Errors                Check for document errors
+  🏗️ Phase 3 - Complex Workflow Orchestrator:
+    ✅ Multi-Step Decomposition     Breaks complex commands into steps
+    ✅ Dependency Management        Ensures proper step execution order
+    ✅ Pattern Generation           Creates linear, circular, matrix patterns
+    ✅ Feature Operations           Adds fillets, chamfers, shells automatically
+    ✅ Assembly Operations          Coordinates multiple part creation
+    ✅ Complexity Analysis          Scores and routes commands intelligently
+    ✅ Workflow Validation          Ensures each step completes successfully
+
+  📊 Intelligent Strategy Selection:
+    🔍 Simple Command              → Direct execution
+    ✏️ Sketch Required            → Phase 1: Sketch-then-operate workflow
+    🎯 Face Operation             → Phase 2: Face selection workflow  
+    🔄 Multi-step Process         → Traditional multi-step workflow
+    🏗️ Complex Assembly          → Phase 3: Complex workflow orchestrator
+
+  🎛️ Real-time Workflow Analysis:
+    📈 Complexity Scoring         Analyzes command complexity (0-1 scale)
+    📊 Step Estimation            Predicts number of execution steps
+    🔍 Strategy Detection         Automatically selects optimal workflow
+    ⚡ Performance Optimization   Routes commands to best processor
+    📋 Progress Tracking          Shows step-by-step execution status
+
+  Examples by Workflow Type:
+
+  Phase 1 (Sketch-Then-Operate):
+    "create 50mm diameter cylinder 100mm tall"
+    "make rectangular pocket 20x10x5mm deep"
+    "design circular pad with 25mm radius"
+
+  Phase 2 (Face Selection):  
+    "add 8mm hole on the top face"
+    "create rectangular pocket on flat surface"
+    "drill 4 mounting holes in corners"
+
+  Phase 3 (Complex Workflows):
+    "create bracket with 4 mounting holes and fillets"
+    "design gear housing with cover and ventilation"
+    "build mechanical assembly with multiple components"
 """
         print(help_text)
 
@@ -423,37 +568,116 @@ Available Commands:
         return results
 
     def show_complex_examples(self):
-        """Show examples of complex shape commands"""
+        """Show examples of Phase 2 & 3 enhanced commands"""
         examples = """
-🏗️  Complex Shape Examples:
+🚀 Phase 2 & 3 Enhanced Command Examples:
 
-Basic Combinations:
-  create a cone and cylinder together
-  make a box with a cylinder on top
-  build a sphere and cube assembly
+🎯 Phase 2 - Intelligent Face Selection & Operations:
 
-Architectural Shapes:
-  create a tower with cone roof
-  build a rocket with fins
-  make a complex building structure
-  create a lighthouse with base and tower
+  Basic Face Operations:
+    add 10mm hole on the top face
+    create 5mm deep pocket on flat surface  
+    drill 6mm hole in the center
+    make rectangular slot on side face
+    add chamfer to sharp edges
+  
+  Advanced Face Operations:
+    create 4 mounting holes in square pattern
+    add threaded holes with M6 specification
+    make keyway slot on cylindrical surface
+    create counterbore holes for cap screws
+    drill angled holes at 45 degrees
+  
+  Multi-Face Operations:
+    add holes on all flat faces
+    create pockets on top and bottom
+    drill holes on cylindrical surfaces
+    make slots on parallel faces
 
-Advanced Operations:
-  create a cylinder, add a cone on top, and fuse them
-  make a box base with four cylinder pillars and a cone roof
-  build a rocket with cylindrical body, cone nose, and fin attachments
-  create a complex mechanical part with multiple features
+🏗️ Phase 3 - Complex Multi-Step Workflows:
 
-Multi-step Examples:
-  "create tower" → base cylinder + main cylinder + cone roof + fusion
-  "create rocket" → main body + nose cone + fins + assembly
-  "complex structure" → base + pillars + roof + complete fusion
+  Mechanical Components:
+    create a bracket with 4 mounting holes and fillets
+    design a gear with 20 teeth and central hub
+    build a bearing housing with mounting features
+    make a shaft collar with set screws
+    create a pulley with keyway and hub
+  
+  Assembly Workflows:
+    design a gear box housing with cover and mounting
+    build a motor mount with vibration damping
+    create a valve body with inlet and outlet ports
+    make a pump housing with impeller chamber
+    design a bearing block with lubrication fittings
+  
+  Architectural Elements:
+    create a column with base and capital
+    build a staircase with railings and supports
+    design a truss structure with multiple joints
+    make a roof frame with rafters and beams
+    create a foundation with anchor bolts
+  
+  Pattern & Feature Operations:
+    create linear pattern of holes along edge
+    make circular pattern of mounting features
+    add matrix pattern of ventilation holes
+    create helical pattern around cylinder
+    make variable spacing pattern with fillets
 
-Tips:
-  ✅ Use keywords like: together, combine, complex, tower, rocket, building
-  ✅ Mention multiple shapes in one command: "cone and cylinder"
-  ✅ Use descriptive terms: "tower with roof", "rocket with fins"
-  ✅ The system automatically detects complex requests and breaks them into steps
+✏️ Phase 1 Enhanced - Sketch-Then-Operate:
+
+  Parametric Sketching:
+    create 50mm diameter cylinder 100mm tall
+    make rectangular base 100x50x10mm with fillets
+    design L-shaped bracket with specific dimensions
+    create hexagonal prism with 25mm sides
+    make tapered cylinder with 20mm to 10mm diameter
+
+🔄 Workflow Strategy Examples:
+
+  Command: "create box"
+  → Strategy: Simple (direct execution)
+  
+  Command: "create 50mm cylinder with 10mm hole"  
+  → Strategy: Sketch-then-operate (Phase 1)
+  
+  Command: "add hole on top face"
+  → Strategy: Face selection (Phase 2)
+  
+  Command: "create bracket with mounting holes and fillets"
+  → Strategy: Complex workflow (Phase 3)
+
+💡 Pro Tips for Advanced Workflows:
+
+  🎯 For Face Operations:
+    - Mention face location: "top", "side", "flat", "cylindrical"
+    - Specify operation: "hole", "pocket", "slot", "chamfer"
+    - Include dimensions: "10mm diameter", "5mm deep"
+  
+  🏗️ For Complex Workflows:
+    - Use descriptive terms: "bracket", "housing", "assembly"
+    - Mention multiple features: "holes and fillets"
+    - Specify patterns: "4 holes in square pattern"
+    - Include mounting: "mounting features", "bolt holes"
+  
+  ⚡ System Intelligence:
+    - Commands are automatically analyzed for complexity
+    - Optimal workflow strategy is selected automatically
+    - Multi-step operations are decomposed intelligently
+    - Face selection happens automatically when needed
+    - Pattern operations are recognized and executed
+    - Feature operations (fillets, chamfers) are applied automatically
+
+🔧 Example Workflow Progressions:
+
+  Simple → Complex:
+    1. "create cylinder" (Phase 1)
+    2. "add hole on top" (Phase 2) 
+    3. "add 4 mounting holes in pattern" (Phase 2 + Pattern)
+    4. "create bracket with multiple holes and fillets" (Phase 3)
+
+  The system learns your intent and applies the most sophisticated
+  workflow automatically for optimal results!
 """
         print(examples)
 

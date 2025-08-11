@@ -1642,7 +1642,7 @@ doc.recompute()"""
                 # Execute the step
                 if self.command_executor:
                     # Try using the command executor
-                    result = self.command_executor.execute_intelligent(step.get('description', ''))
+                    result = self.command_executor.execute_natural_language(step.get('description', ''))
                 else:
                     # Fallback to direct LLM generation
                     result = self._execute_step_with_llm(step, current_state)
