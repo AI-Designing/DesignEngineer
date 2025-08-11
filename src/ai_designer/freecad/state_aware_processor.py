@@ -29,6 +29,23 @@ class StateAwareCommandProcessor:
             self.face_detector = FaceDetectionEngine(api_client)
             self.face_selector = FaceSelector(self.face_detector)
             self.face_selection_available = True
+        except ImportError:
+            self.face_detector = None
+            self.face_selector = None
+            self.face_selection_available = False
+            
+        # Initialize workflow orchestrator for Phase 3
+        try:
+            from .workflow_orchestrator import WorkflowOrchestrator
+            self.workflow_orchestrator = WorkflowOrchestrator(
+                state_processor=self,
+                pattern_engine=None,  # Will be initialized when pattern engine is implemented
+                advanced_features=None  # Will be initialized when advanced features are implemented
+            )
+            self.multi_step_workflows_available = True
+        except ImportError:
+            self.workflow_orchestrator = None
+            self.multi_step_workflows_available = False
             print("✅ Face selection engine initialized")
         except ImportError as e:
             print(f"⚠️ Face selection engine not available: {e}")
@@ -56,10 +73,14 @@ class StateAwareCommandProcessor:
             print(f"🔍 Workflow analysis: {workflow_analysis.get('strategy', 'unknown')}")
             
             # Step 3: Use appropriate processing strategy
-            if workflow_analysis.get('requires_sketch_then_operate', False):
+            if workflow_analysis.get('is_complex_workflow', False):
+                return self._process_complex_workflow(nl_command, current_state, workflow_analysis)
+            elif workflow_analysis.get('requires_sketch_then_operate', False):
                 return self._process_sketch_then_operate_workflow(nl_command, current_state, workflow_analysis)
             elif workflow_analysis.get('requires_face_selection', False):
                 return self._process_face_selection_workflow(nl_command, current_state, workflow_analysis)
+            elif workflow_analysis.get('is_multi_step', False):
+                return self._process_multi_step_workflow(nl_command, current_state, workflow_analysis)
             else:
                 return self._process_standard_workflow(nl_command, current_state)
                 
@@ -115,6 +136,7 @@ class StateAwareCommandProcessor:
         - sketch_then_operate: Commands requiring sketch creation followed by operations
         - face_selection: Commands needing intelligent face selection
         - multi_step: Complex commands requiring multiple sequential operations
+        - complex_workflow: Phase 3 complex multi-step workflows with patterns/features
         """
         nl_lower = nl_command.lower()
         
@@ -122,17 +144,53 @@ class StateAwareCommandProcessor:
         sketch_operations = ['cylinder', 'extrude', 'pad', 'revolve', 'sweep', 'loft']
         hole_operations = ['hole', 'drill', 'bore', 'pocket', 'cut']
         
+        # Phase 3: Complex workflow indicators
+        complex_workflow_indicators = [
+            'bracket', 'housing', 'assembly', 'pattern', 'array', 'grid',
+            'fillet', 'chamfer', 'shell', 'multiple', 'mounting', 'features',
+            'complex', 'gear', 'mechanical', 'cover', 'lid'
+        ]
+        
+        pattern_indicators = [
+            'pattern', 'array', 'grid', 'circular', 'linear', 'matrix',
+            'repeat', 'multiple holes', 'series of', 'row of', 'circle of'
+        ]
+        
+        feature_indicators = [
+            'fillet', 'chamfer', 'round', 'bevel', 'shell', 'hollow',
+            'rounded corners', 'smooth edges', 'draft angle'
+        ]
+        
         # Analyze command structure
         requires_sketch = any(op in nl_lower for op in sketch_operations + hole_operations)
         requires_face_selection = any(op in nl_lower for op in hole_operations + ['on face', 'on surface'])
         is_geometric_primitive = any(term in nl_lower for term in ['cube', 'box', 'sphere', 'cone'])
+        
+        # Phase 3: Complex workflow detection
+        has_complex_indicators = any(indicator in nl_lower for indicator in complex_workflow_indicators)
+        has_pattern_indicators = any(indicator in nl_lower for indicator in pattern_indicators)
+        has_feature_indicators = any(indicator in nl_lower for indicator in feature_indicators)
+        
+        # Count complexity factors
+        complexity_factors = sum([
+            has_complex_indicators,
+            has_pattern_indicators,
+            has_feature_indicators,
+            'and' in nl_lower,  # Multiple operations
+            len(nl_lower.split()) > 8,  # Long commands
+            'with' in nl_lower  # Additional features
+        ])
         
         # Check current state context
         has_active_body = current_state.get('live_state', {}).get('active_body', False)
         object_count = current_state.get('object_count', 0)
         
         strategy = 'simple'
-        if requires_sketch and not is_geometric_primitive:
+        
+        # Phase 3: Complex workflow strategy selection
+        if complexity_factors >= 2 or has_complex_indicators:
+            strategy = 'complex_workflow'
+        elif requires_sketch and not is_geometric_primitive:
             strategy = 'sketch_then_operate'
         elif requires_face_selection and object_count > 0:
             strategy = 'face_selection'
@@ -140,7 +198,7 @@ class StateAwareCommandProcessor:
             strategy = 'multi_step'
         
         # Override: If we have existing objects and are adding holes/pockets, use face selection
-        if object_count > 0 and any(op in nl_lower for op in hole_operations):
+        if object_count > 0 and any(op in nl_lower for op in hole_operations) and not has_complex_indicators:
             strategy = 'face_selection'
         
         return {
@@ -148,6 +206,10 @@ class StateAwareCommandProcessor:
             'requires_sketch_then_operate': strategy == 'sketch_then_operate',
             'requires_face_selection': strategy == 'face_selection',
             'is_multi_step': strategy == 'multi_step',
+            'is_complex_workflow': strategy == 'complex_workflow',
+            'has_pattern_indicators': has_pattern_indicators,
+            'has_feature_indicators': has_feature_indicators,
+            'complexity_factors': complexity_factors,
             'needs_active_body': requires_sketch and not has_active_body,
             'estimated_steps': self._estimate_step_count(nl_command, strategy),
             'complexity_score': self._calculate_complexity_score(nl_command, current_state)
@@ -157,35 +219,66 @@ class StateAwareCommandProcessor:
         """Estimate number of steps required for the command"""
         base_steps = {
             'simple': 1,
-            'sketch_then_operate': 3,  # Create body, sketch, operate
-            'face_selection': 2,       # Select face, perform operation
-            'multi_step': 4            # Multiple operations
+            'sketch_then_operate': 3,      # Create body, sketch, operate
+            'face_selection': 2,           # Select face, perform operation
+            'multi_step': 4,              # Multiple operations
+            'complex_workflow': 6         # Phase 3: Complex multi-step workflows
         }
         
         # Adjust based on command complexity
         modifier = 1
+        nl_lower = nl_command.lower()
+        
+        # Basic complexity adjustments
         if 'diameter' in nl_command and 'height' in nl_command:
             modifier += 1  # More constraints
         if 'mounting' in nl_command or 'bracket' in nl_command:
             modifier += 2  # Multiple features
+            
+        # Phase 3: Advanced complexity adjustments
+        if any(term in nl_lower for term in ['pattern', 'array', 'grid']):
+            modifier += 2  # Pattern operations
+        if any(term in nl_lower for term in ['fillet', 'chamfer', 'round']):
+            modifier += 1  # Feature operations
+        if 'assembly' in nl_lower or 'multiple parts' in nl_lower:
+            modifier += 3  # Assembly operations
+        if nl_lower.count('and') >= 2:
+            modifier += nl_lower.count('and')  # Multiple coordinated operations
             
         return base_steps.get(strategy, 1) * modifier
     
     def _calculate_complexity_score(self, nl_command: str, current_state: Dict[str, Any]) -> float:
         """Calculate complexity score (0-1) for the command"""
         score = 0.0
+        nl_lower = nl_command.lower()
         
         # Base complexity factors
         if len(nl_command.split()) > 10:
             score += 0.2
-        if any(term in nl_command.lower() for term in ['bracket', 'assembly', 'gear', 'housing']):
+        if any(term in nl_lower for term in ['bracket', 'assembly', 'gear', 'housing']):
             score += 0.3
         if current_state.get('object_count', 0) > 0:
             score += 0.2  # Adding to existing design
         
         # Advanced features
         advanced_terms = ['fillet', 'chamfer', 'pattern', 'array', 'mirror']
-        score += 0.1 * sum(1 for term in advanced_terms if term in nl_command.lower())
+        score += 0.1 * sum(1 for term in advanced_terms if term in nl_lower)
+        
+        # Phase 3: Complex workflow indicators
+        complex_terms = ['complex', 'assembly', 'multiple', 'housing', 'mechanical', 'cover']
+        score += 0.15 * sum(1 for term in complex_terms if term in nl_lower)
+        
+        # Pattern complexity
+        pattern_terms = ['grid', 'matrix', 'circular', 'linear', 'pattern']
+        score += 0.1 * sum(1 for term in pattern_terms if term in nl_lower)
+        
+        # Multiple operations indicator
+        if 'and' in nl_lower:
+            score += 0.1 * nl_lower.count('and')
+        
+        # Coordination complexity
+        if any(term in nl_lower for term in ['with', 'including', 'plus', 'also']):
+            score += 0.1
         
         return min(score, 1.0)
     
@@ -606,6 +699,104 @@ print(f"SUCCESS: Hole created - radius {radius}mm, depth {depth}mm")
                 validation['quality_score'] -= 0.2
         
         return validation
+    
+    def _process_complex_workflow(self, nl_command: str, current_state: Dict[str, Any], workflow_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle Phase 3 complex multi-step workflows
+        
+        Examples:
+        - "Create a bracket with 4 mounting holes and fillets"
+        - "Build a gear housing with cover and mounting features"
+        - "Design a mechanical assembly with multiple parts"
+        """
+        print(f"🎯 Starting Complex Workflow for: {nl_command}")
+        
+        if not self.multi_step_workflows_available:
+            return {
+                'status': 'error',
+                'error': 'Complex workflow engine not available',
+                'suggestion': 'Complex workflows require Phase 3 components'
+            }
+        
+        try:
+            # Step 1: Decompose complex workflow
+            workflow_steps = self.workflow_orchestrator.decompose_complex_workflow(nl_command, current_state)
+            print(f"🔧 Decomposed into {len(workflow_steps)} workflow steps")
+            
+            # Step 2: Plan execution sequence
+            sorted_steps = self.workflow_orchestrator.plan_execution_sequence(workflow_steps)
+            print(f"📋 Execution sequence planned for {len(sorted_steps)} steps")
+            
+            # Step 3: Execute workflow
+            execution_context = {
+                'session_id': self.session_id,
+                'current_state': current_state,
+                'workflow_analysis': workflow_analysis
+            }
+            
+            execution_result = self.workflow_orchestrator.execute_workflow_steps(sorted_steps, execution_context)
+            
+            # Step 4: Final state validation
+            final_state = self._get_current_state()
+            
+            return {
+                'status': execution_result['status'],
+                'workflow': 'complex_workflow',
+                'total_steps': execution_result['total_steps'],
+                'completed_steps': execution_result['completed_steps'],
+                'failed_steps': execution_result['failed_steps'],
+                'execution_time': execution_result['execution_time'],
+                'step_results': execution_result['step_results'],
+                'final_state': final_state,
+                'complexity_score': workflow_analysis.get('complexity_score', 0.0),
+                'workflow_pattern': workflow_analysis.get('strategy', 'unknown')
+            }
+            
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': f"Complex workflow failed: {str(e)}",
+                'suggestion': 'Try breaking the command into simpler parts'
+            }
+    
+    def _process_multi_step_workflow(self, nl_command: str, current_state: Dict[str, Any], workflow_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle traditional multi-step workflows (Phase 1 extension)
+        
+        Examples:
+        - "Add multiple features to existing object"
+        - "Create and position additional components"
+        """
+        print(f"🎯 Starting Multi-Step Workflow for: {nl_command}")
+        
+        try:
+            # Use existing task breakdown logic
+            task_breakdown = self._decompose_task(nl_command, current_state)
+            
+            if not task_breakdown or 'error' in task_breakdown:
+                return {"status": "error", "message": "Failed to decompose multi-step task"}
+            
+            print(f"📋 Task broken down into {len(task_breakdown['steps'])} steps")
+            
+            # Execute each step with state updates
+            execution_result = self._execute_step_sequence(task_breakdown, nl_command)
+            
+            return {
+                'status': execution_result.get('status', 'unknown'),
+                'workflow': 'multi_step',
+                'steps_executed': execution_result.get('completed_steps', 0),
+                'execution_results': execution_result.get('step_results', []),
+                'final_state': self._get_current_state()
+            }
+            
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': f"Multi-step workflow failed: {str(e)}",
+                'suggestion': 'Try using simpler commands'
+            }
+    
+    def _process_standard_workflow(self, nl_command: str, current_state: Dict[str, Any]) -> Dict[str, Any]:
         """Process commands using standard decomposition workflow"""
         # Use existing decomposition logic for non-sketch-based commands
         task_breakdown = self._decompose_task(nl_command, current_state)
