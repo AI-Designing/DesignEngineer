@@ -145,8 +145,31 @@ class FreeCADCLI:
         try:
             print(f"🧠 Processing with Phase 2 & 3 workflows: {command}")
             
+            # Check if user wants REAL FreeCAD execution vs simulation
+            if "--real" in command:
+                print("🔧 REAL EXECUTION MODE: Creating actual FreeCAD objects...")
+                clean_command = command.replace("--real", "").strip()
+                
+                # Use direct command executor for real execution
+                if clean_command.startswith('!'):
+                    # Direct FreeCAD Python command
+                    freecad_command = clean_command[1:]
+                    result = self.command_executor.execute(freecad_command)
+                else:
+                    # Natural language command with real execution
+                    result = self.command_executor.execute_natural_language(clean_command)
+                
+                # Convert result format for consistency
+                if result and result.get("status") == "success":
+                    print(f"✅ REAL EXECUTION SUCCESS: {result.get('message', 'Command executed successfully')}")
+                    print(f"📁 File saved: {result.get('saved_path', 'Check outputs/ directory')}")
+                    result['execution_type'] = 'REAL_FREECAD'
+                else:
+                    print(f"❌ REAL EXECUTION FAILED: {result.get('message', 'Execution failed')}")
+                    result['execution_type'] = 'REAL_FREECAD'
+                
             # Use StateAwareCommandProcessor for all commands
-            if hasattr(self.command_executor, 'state_aware_processor') and self.command_executor.state_aware_processor:
+            elif hasattr(self.command_executor, 'state_aware_processor') and self.command_executor.state_aware_processor:
                 print("🎯 Using advanced State-Aware Processing (Phase 2 & 3)")
                 
                 # Let the state-aware processor handle workflow detection and execution
@@ -348,6 +371,12 @@ Available Commands:
     - create bracket with mounting holes     Phase 3: Complex multi-step workflow
     - design gear with hub and fillets       Phase 3: Advanced feature generation
     - build assembly with multiple parts     Phase 3: Complex assembly workflow
+
+  🔧 REAL EXECUTION vs SIMULATION:
+    - create gear --real                     REAL: Actually creates FreeCAD objects
+    - create gear                            SIMULATION: Shows workflow analysis only
+    - create box 10x20x30 --real             REAL: Creates actual box in FreeCAD
+    - create complex assembly --real         REAL: Executes all steps in FreeCAD
   
   🏗️ Phase 3 - Complex Multi-Step Workflows:
     - create a bracket with 4 mounting holes and fillets
