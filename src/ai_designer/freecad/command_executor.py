@@ -18,13 +18,14 @@ except ImportError:
     from ai_designer.llm.client import LLMClient
 
 class CommandExecutor:
-    def __init__(self, api_client=None, state_manager=None, auto_save=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True):
+    def __init__(self, api_client=None, state_manager=None, auto_save=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True, persistent_gui=None):
         self.api_client = api_client
         self.state_manager = state_manager
         self.state_analyzer = FreeCADStateAnalyzer(api_client)
         self.command_history = []
         self.auto_save = auto_save
         self.auto_open_gui = auto_open_gui  # New option to control GUI opening
+        self.persistent_gui = persistent_gui  # Reference to persistent GUI
         self.save_counter = 0
         self.last_saved_path = None
         # llm_provider: 'openai' or 'google', llm_api_key: API key for the provider
@@ -60,8 +61,17 @@ class CommandExecutor:
                     print(f"\n💾 Document auto-saved to: {save_result}")
                     self.last_saved_path = save_result
                     
-                    # Auto-open in GUI if enabled
-                    if self.auto_open_gui:
+                    # Use persistent GUI if available, otherwise fall back to auto-open GUI
+                    if self.persistent_gui and self.persistent_gui.is_gui_running():
+                        # Use persistent GUI - just update the view, no new window
+                        print("🔄 Updating persistent GUI view...")
+                        view_updated = self.persistent_gui.update_gui_view()
+                        if view_updated:
+                            print("✅ Persistent GUI updated with new objects")
+                        else:
+                            print("⚠️  Persistent GUI view update failed")
+                    elif self.auto_open_gui:
+                        # Fallback to opening new GUI (legacy behavior)
                         print("🖥️  Opening document in FreeCAD GUI...")
                         gui_result = self.api_client.open_in_freecad_gui(save_result)
                         if gui_result.get("status") == "success":
@@ -74,6 +84,8 @@ class CommandExecutor:
                                 print("✅ Document opened in FreeCAD GUI (fallback method)")
                             else:
                                 print(f"❌ GUI opening failed: {gui_result.get('message', 'Unknown error')}")
+                    else:
+                        print("ℹ️  Auto-GUI disabled, document saved but not opened in GUI")
             
             # Update state if state manager is available
             if self.state_manager and response.get("status") == "success":

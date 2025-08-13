@@ -2,14 +2,19 @@
 import sys
 import os
 import argparse
+import asyncio
+import threading
+import time
 
 # Fix imports to use absolute paths
 try:
     from ai_designer.freecad.api_client import FreeCADAPIClient
     from ai_designer.freecad.command_executor import CommandExecutor
     from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
+    from ai_designer.freecad.persistent_gui_client import PersistentFreeCADGUI
     from ai_designer.redis_utils.client import RedisClient
     from ai_designer.redis_utils.state_cache import StateCache
+    from ai_designer.realtime.websocket_manager import WebSocketManager, ProgressTracker
 except ImportError:
     # Fallback for when running as script
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -17,11 +22,13 @@ except ImportError:
     from ai_designer.freecad.api_client import FreeCADAPIClient
     from ai_designer.freecad.command_executor import CommandExecutor
     from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
+    from ai_designer.freecad.persistent_gui_client import PersistentFreeCADGUI
     from ai_designer.redis_utils.client import RedisClient
     from ai_designer.redis_utils.state_cache import StateCache
+    from ai_designer.realtime.websocket_manager import WebSocketManager, ProgressTracker
 
 class FreeCADCLI:
-    def __init__(self, use_headless=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True):
+    def __init__(self, use_headless=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True, enable_websocket=True, enable_persistent_gui=True):
         self.api_client = FreeCADAPIClient(use_headless=use_headless)
         self.command_executor = None
         self.state_cache = None
@@ -29,6 +36,16 @@ class FreeCADCLI:
         self.llm_provider = llm_provider
         self.llm_api_key = llm_api_key
         self.auto_open_gui = auto_open_gui
+        
+        # WebSocket and real-time features
+        self.enable_websocket = enable_websocket
+        self.enable_persistent_gui = enable_persistent_gui
+        self.websocket_manager = None
+        self.progress_tracker = None
+        self.persistent_gui = None
+        self.websocket_thread = None
+        self.session_id = f"cli_session_{int(time.time())}"
+        
         # Try to initialize Redis for state management
         try:
             redis_client = RedisClient()
@@ -37,25 +54,87 @@ class FreeCADCLI:
                 print("✓ Redis connection established for state caching")
         except Exception as e:
             print(f"Warning: Redis not available: {e}")
+        
+        # Initialize WebSocket server if enabled
+        if self.enable_websocket:
+            try:
+                self.websocket_manager = WebSocketManager()
+                self.progress_tracker = ProgressTracker(self.websocket_manager)
+                print("✓ WebSocket manager initialized")
+            except Exception as e:
+                print(f"Warning: WebSocket not available: {e}")
+                self.enable_websocket = False
+        
+        # Initialize persistent GUI if enabled
+        if self.enable_persistent_gui:
+            try:
+                self.persistent_gui = PersistentFreeCADGUI(self.websocket_manager)
+                print("✓ Persistent GUI client initialized")
+            except Exception as e:
+                print(f"Warning: Persistent GUI not available: {e}")
+                self.enable_persistent_gui = False
 
     def initialize(self):
         """Initialize FreeCAD connection and command executor"""
         print("Initializing FreeCAD CLI...")
         
+        # Start WebSocket server if enabled
+        if self.enable_websocket and self.websocket_manager:
+            self._start_websocket_server()
+        
         if self.api_client.connect():
             print("✓ FreeCAD connection established")
+            
+            # Start persistent GUI if enabled BEFORE creating CommandExecutor
+            if self.enable_persistent_gui and self.persistent_gui:
+                print("🖥️  Starting persistent FreeCAD GUI...")
+                if self.persistent_gui.start_persistent_gui():
+                    print("✅ Persistent GUI ready for real-time updates")
+                    if self.websocket_manager:
+                        self.websocket_manager.send_user_notification(
+                            "FreeCAD CLI initialized with persistent GUI and WebSocket server",
+                            "success",
+                            self.session_id
+                        )
+                else:
+                    print("⚠️  Persistent GUI failed to start, falling back to standard mode")
+                    self.enable_persistent_gui = False
+            
+            # Create CommandExecutor with persistent GUI reference
             self.command_executor = CommandExecutor(
                 self.api_client, 
                 self.state_cache, 
                 llm_provider=self.llm_provider, 
                 llm_api_key=self.llm_api_key,
-                auto_open_gui=self.auto_open_gui
+                auto_open_gui=self.auto_open_gui,
+                persistent_gui=self.persistent_gui if self.enable_persistent_gui else None
             )
             self.state_analyzer = FreeCADStateAnalyzer(self.api_client)
+            
             return True
         else:
             print("✗ Failed to connect to FreeCAD")
             return False
+    
+    def _start_websocket_server(self):
+        """Start the WebSocket server in a separate thread"""
+        def start_server():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self.websocket_manager.start_server())
+                loop.run_forever()
+            except Exception as e:
+                print(f"❌ WebSocket server error: {e}")
+            finally:
+                loop.close()
+        
+        self.websocket_thread = threading.Thread(target=start_server, daemon=True)
+        self.websocket_thread.start()
+        
+        # Give server time to start
+        time.sleep(1)
+        print("✅ WebSocket server started on ws://localhost:8765")
 
     def interactive_mode(self):
         """Start interactive command mode"""
@@ -131,6 +210,26 @@ class FreeCADCLI:
                     # Show complex shape examples
                     self.show_complex_examples()
                 
+                elif user_input.lower() in ['websocket', 'ws', 'realtime']:
+                    # Show WebSocket status
+                    self.show_websocket_status()
+                
+                elif user_input.lower() in ['persistent-gui', 'pgui', 'gui-status']:
+                    # Show persistent GUI status
+                    self.show_persistent_gui_status()
+                
+                elif user_input.lower() in ['start-websocket', 'ws-start']:
+                    # Start WebSocket server manually
+                    self.start_websocket_manually()
+                
+                elif user_input.lower() in ['stop-gui', 'gui-stop']:
+                    # Stop persistent GUI
+                    self.stop_persistent_gui()
+                
+                elif user_input.lower() in ['restart-gui', 'gui-restart']:
+                    # Restart persistent GUI
+                    self.restart_persistent_gui()
+                
                 else:
                     self.execute_command(user_input)
                     
@@ -139,16 +238,56 @@ class FreeCADCLI:
             except EOFError:
                 print("\nGoodbye!")
                 break
+        
+        # Cleanup
+        self.cleanup()
+    
+    def cleanup(self):
+        """Cleanup resources when shutting down"""
+        print("🧹 Cleaning up resources...")
+        
+        # Stop persistent GUI
+        if self.enable_persistent_gui and self.persistent_gui:
+            if self.persistent_gui.is_gui_running():
+                print("🛑 Stopping persistent GUI...")
+                self.persistent_gui.stop_gui()
+        
+        # Stop WebSocket server
+        if self.enable_websocket and self.websocket_manager:
+            if self.websocket_manager.running:
+                print("🛑 Stopping WebSocket server...")
+                try:
+                    # This needs to be run in the event loop
+                    if self.websocket_thread and self.websocket_thread.is_alive():
+                        # Send stop signal
+                        asyncio.run_coroutine_threadsafe(
+                            self.websocket_manager.stop_server(),
+                            asyncio.get_event_loop()
+                        )
+                except:
+                    pass
+        
+        print("✅ Cleanup completed")
 
     def execute_command(self, command):
-        """Execute a single command using Phase 2 & 3 advanced workflows"""
+        """Execute a single command using Phase 2 & 3 advanced workflows with real-time updates"""
+        command_id = f"cmd_{int(time.time() * 1000)}"
+        
         try:
             print(f"🧠 Processing with Phase 2 & 3 workflows: {command}")
+            
+            # Send initial progress update
+            if self.progress_tracker:
+                self.progress_tracker.start_tracking(command_id, 5, self.session_id)
             
             # Check if user wants REAL FreeCAD execution vs simulation
             if "--real" in command:
                 print("🔧 REAL EXECUTION MODE: Creating actual FreeCAD objects...")
                 clean_command = command.replace("--real", "").strip()
+                
+                # Update progress
+                if self.progress_tracker:
+                    self.progress_tracker.update_progress(command_id, 1, "Generating FreeCAD code...")
                 
                 # Use direct command executor for real execution
                 if clean_command.startswith('!'):
@@ -159,27 +298,79 @@ class FreeCADCLI:
                     # Natural language command with real execution
                     result = self.command_executor.execute_natural_language(clean_command)
                 
+                # Update progress
+                if self.progress_tracker:
+                    self.progress_tracker.update_progress(command_id, 3, "Executing in FreeCAD...")
+                
+                # Send to persistent GUI if available
+                if self.enable_persistent_gui and self.persistent_gui and self.persistent_gui.is_gui_running():
+                    if result and result.get("status") == "success":
+                        # Get the generated command and send to GUI
+                        freecad_script = result.get('command', '')
+                        if freecad_script:
+                            print("📡 Sending real-time update to persistent GUI...")
+                            gui_success = self.persistent_gui.execute_script_in_gui(freecad_script)
+                            if gui_success:
+                                print("✅ Command executed in persistent GUI")
+                                # Update view
+                                self.persistent_gui.update_gui_view()
+                            else:
+                                print("⚠️  GUI update failed, but command executed")
+                
+                # Update progress
+                if self.progress_tracker:
+                    self.progress_tracker.update_progress(command_id, 4, "Updating views...")
+                
                 # Convert result format for consistency
                 if result and result.get("status") == "success":
                     print(f"✅ REAL EXECUTION SUCCESS: {result.get('message', 'Command executed successfully')}")
                     print(f"📁 File saved: {result.get('saved_path', 'Check outputs/ directory')}")
                     result['execution_type'] = 'REAL_FREECAD'
+                    
+                    # Complete progress tracking
+                    if self.progress_tracker:
+                        self.progress_tracker.complete_tracking(command_id, True, "Command completed successfully")
                 else:
                     print(f"❌ REAL EXECUTION FAILED: {result.get('message', 'Execution failed')}")
                     result['execution_type'] = 'REAL_FREECAD'
+                    
+                    # Fail progress tracking
+                    if self.progress_tracker:
+                        self.progress_tracker.fail_tracking(command_id, result.get('message', 'Execution failed'))
                 
             # Use StateAwareCommandProcessor for all commands
             elif hasattr(self.command_executor, 'state_aware_processor') and self.command_executor.state_aware_processor:
                 print("🎯 Using advanced State-Aware Processing (Phase 2 & 3)")
                 
+                # Update progress
+                if self.progress_tracker:
+                    self.progress_tracker.update_progress(command_id, 1, "Analyzing workflow strategy...")
+                
                 # Let the state-aware processor handle workflow detection and execution
                 result = self.command_executor.state_aware_processor.process_complex_command(command)
+                
+                # Update progress
+                if self.progress_tracker:
+                    self.progress_tracker.update_progress(command_id, 3, "Processing workflow steps...")
                 
                 # Display detailed workflow results
                 self._display_workflow_results(result, command)
                 
+                # Complete progress tracking
+                if self.progress_tracker:
+                    status = result.get('status', 'unknown')
+                    if status == 'success':
+                        self.progress_tracker.complete_tracking(command_id, True, "Workflow analysis completed")
+                    else:
+                        self.progress_tracker.fail_tracking(command_id, result.get('error', 'Workflow failed'))
+                
             else:
                 print("⚠️ Falling back to basic processing")
+                
+                # Update progress
+                if self.progress_tracker:
+                    self.progress_tracker.update_progress(command_id, 1, "Basic command processing...")
+                
                 # Fallback to basic processing
                 if command.startswith('!'):
                     # Direct FreeCAD Python command
@@ -191,11 +382,17 @@ class FreeCADCLI:
                 
                 if result["status"] == "success":
                     print(f"✓ {result['message']}")
+                    if self.progress_tracker:
+                        self.progress_tracker.complete_tracking(command_id, True, "Basic command completed")
                 else:
                     print(f"✗ Error: {result['message']}")
+                    if self.progress_tracker:
+                        self.progress_tracker.fail_tracking(command_id, result['message'])
                 
         except Exception as e:
             print(f"✗ Exception: {e}")
+            if self.progress_tracker:
+                self.progress_tracker.fail_tracking(command_id, str(e))
             import traceback
             traceback.print_exc()
     
@@ -377,6 +574,13 @@ Available Commands:
     - create gear                            SIMULATION: Shows workflow analysis only
     - create box 10x20x30 --real             REAL: Creates actual box in FreeCAD
     - create complex assembly --real         REAL: Executes all steps in FreeCAD
+    
+  🌐 REAL-TIME FEATURES:
+    - websocket / ws                         Show WebSocket server status
+    - persistent-gui / pgui                  Show persistent GUI status  
+    - restart-gui                            Restart persistent FreeCAD GUI
+    - stop-gui                               Stop persistent GUI
+    💡 Connect to ws://localhost:8765 for real-time updates
   
   🏗️ Phase 3 - Complex Multi-Step Workflows:
     - create a bracket with 4 mounting holes and fillets
@@ -415,9 +619,36 @@ Available Commands:
     - gui / open / view         Open current document in FreeCAD GUI
     - gui-on / auto-gui-on      Enable automatic GUI opening after commands
     - gui-off / auto-gui-off    Disable automatic GUI opening
+    - websocket / ws            Show WebSocket server status and connection info
+    - persistent-gui / pgui     Show persistent GUI status
+    - restart-gui               Restart persistent FreeCAD GUI
+    - stop-gui                  Stop persistent GUI
     - complex / examples        Show complex shape examples
     - help                      Show this help
     - quit                      Exit
+
+🌐 Real-Time Features:
+
+  🔗 WebSocket Server:
+    ✅ Live Progress Updates     Real-time command execution progress
+    ✅ Step-by-Step Tracking     See each workflow step as it executes
+    ✅ Error Notifications       Instant error reporting and suggestions
+    ✅ State Change Updates      Live document state synchronization
+    ✅ Multi-Client Support      Multiple clients can connect simultaneously
+    
+  🖥️ Persistent FreeCAD GUI:
+    ✅ Continuous Display       GUI stays open throughout session
+    ✅ Real-Time Updates         Changes appear instantly as commands execute
+    ✅ Step-by-Step Visualization  Watch complex workflows build progressively
+    ✅ Socket Communication      Direct communication with CLI via sockets
+    ✅ Auto View Updates         Automatically fits view to show new objects
+    ✅ Background Processing     No need to manually open/close FreeCAD
+    
+  📡 Connection Details:
+    🌐 WebSocket URL: ws://localhost:8765
+    🔌 GUI Communication: Socket-based real-time updates
+    📱 Session Tracking: Each session gets unique ID for isolation
+    🔄 Auto-Reconnection: Robust connection handling with retries
 
 🚀 Advanced Workflow Features (Phase 2 & 3):
 
@@ -596,7 +827,95 @@ Available Commands:
         print(f"✅ Complex shape creation completed with {len(results)} successful operations")
         return results
 
-    def show_complex_examples(self):
+    def show_websocket_status(self):
+        """Show WebSocket server status"""
+        print("\n🌐 WebSocket Server Status:")
+        print("=" * 40)
+        
+        if not self.enable_websocket or not self.websocket_manager:
+            print("❌ WebSocket server is disabled")
+            return
+        
+        stats = self.websocket_manager.get_stats()
+        
+        print(f"Status: {'🟢 Running' if stats['running'] else '🔴 Stopped'}")
+        print(f"Active connections: {stats['active_connections']}")
+        print(f"Total connections: {stats['total_connections']}")
+        print(f"Messages sent: {stats['messages_sent']}")
+        print(f"Messages received: {stats['messages_received']}")
+        print(f"Session count: {stats['session_count']}")
+        
+        if stats['uptime_seconds']:
+            uptime_str = f"{stats['uptime_seconds']:.1f}s"
+            if stats['uptime_seconds'] > 60:
+                uptime_str = f"{stats['uptime_seconds']/60:.1f}m"
+            print(f"Uptime: {uptime_str}")
+        
+        print(f"🔗 Connection URL: ws://localhost:8765")
+        print(f"📱 Session ID: {self.session_id}")
+    
+    def show_persistent_gui_status(self):
+        """Show persistent GUI status"""
+        print("\n🖥️  Persistent GUI Status:")
+        print("=" * 40)
+        
+        if not self.enable_persistent_gui or not self.persistent_gui:
+            print("❌ Persistent GUI is disabled")
+            return
+        
+        status = self.persistent_gui.get_status()
+        
+        print(f"Status: {'🟢 Running' if status['running'] else '🔴 Stopped'}")
+        if status['pid']:
+            print(f"Process ID: {status['pid']}")
+        print(f"Communication port: {status['communication_port']}")
+        print(f"Session ID: {status['session_id']}")
+        
+        if status['running']:
+            print("✅ GUI is ready for real-time updates")
+            print("💡 Use '--real' flag with commands to see live updates")
+        else:
+            print("⚠️  GUI is not running - try restarting with 'restart-gui'")
+    
+    def start_websocket_manually(self):
+        """Start WebSocket server manually"""
+        if self.enable_websocket and self.websocket_manager:
+            if self.websocket_manager.running:
+                print("⚠️  WebSocket server is already running")
+            else:
+                print("🔄 Starting WebSocket server...")
+                self._start_websocket_server()
+        else:
+            print("❌ WebSocket server is not available")
+    
+    def stop_persistent_gui(self):
+        """Stop the persistent GUI"""
+        if self.enable_persistent_gui and self.persistent_gui:
+            if self.persistent_gui.is_gui_running():
+                print("🛑 Stopping persistent GUI...")
+                self.persistent_gui.stop_gui()
+            else:
+                print("⚠️  Persistent GUI is not running")
+        else:
+            print("❌ Persistent GUI is not available")
+    
+    def restart_persistent_gui(self):
+        """Restart the persistent GUI"""
+        if self.enable_persistent_gui and self.persistent_gui:
+            print("🔄 Restarting persistent GUI...")
+            
+            # Stop if running
+            if self.persistent_gui.is_gui_running():
+                self.persistent_gui.stop_gui()
+                time.sleep(2)
+            
+            # Start again
+            if self.persistent_gui.start_persistent_gui():
+                print("✅ Persistent GUI restarted successfully")
+            else:
+                print("❌ Failed to restart persistent GUI")
+        else:
+            print("❌ Persistent GUI is not available")
         """Show examples of Phase 2 & 3 enhanced commands"""
         examples = """
 🚀 Phase 2 & 3 Enhanced Command Examples:
@@ -711,7 +1030,7 @@ Available Commands:
         print(examples)
 
 def main():
-    parser = argparse.ArgumentParser(description="FreeCAD Command Line Interface")
+    parser = argparse.ArgumentParser(description="FreeCAD Command Line Interface with Real-time Features")
     parser.add_argument('--gui', action='store_true', help='Use FreeCAD GUI instead of headless mode')
     parser.add_argument('--script', help='Execute a specific script file')
     parser.add_argument('--command', help='Execute a single command and exit')
@@ -719,10 +1038,19 @@ def main():
     parser.add_argument('--auto-analyze', action='store_true', help='Automatically analyze state after each command')
     parser.add_argument('--llm-provider', choices=['openai', 'google'], default='openai', help='LLM provider to use (openai or google)')
     parser.add_argument('--llm-api-key', help='API key for the selected LLM provider')
+    parser.add_argument('--no-websocket', action='store_true', help='Disable WebSocket server for real-time updates')
+    parser.add_argument('--no-persistent-gui', action='store_true', help='Disable persistent FreeCAD GUI')
+    parser.add_argument('--websocket-port', type=int, default=8765, help='WebSocket server port (default: 8765)')
     args = parser.parse_args()
     
-    # Initialize CLI
-    cli = FreeCADCLI(use_headless=not args.gui, llm_provider=args.llm_provider, llm_api_key=args.llm_api_key)
+    # Initialize CLI with new features
+    cli = FreeCADCLI(
+        use_headless=not args.gui, 
+        llm_provider=args.llm_provider, 
+        llm_api_key=args.llm_api_key,
+        enable_websocket=not args.no_websocket,
+        enable_persistent_gui=not args.no_persistent_gui
+    )
     
     if args.analyze:
         # Analysis mode

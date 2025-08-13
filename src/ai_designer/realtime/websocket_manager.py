@@ -391,12 +391,23 @@ class WebSocketManager:
                 if not self.message_queue.empty():
                     send_type, target, message = self.message_queue.get(timeout=0.1)
                     
-                    # Schedule async sending
+                    # Schedule async sending with proper event loop handling
                     if self.running:
-                        asyncio.run_coroutine_threadsafe(
-                            self._send_queued_message(send_type, target, message),
-                            asyncio.get_event_loop()
-                        )
+                        try:
+                            # Try to get the existing event loop
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                # Schedule the coroutine in the existing loop
+                                asyncio.run_coroutine_threadsafe(
+                                    self._send_queued_message(send_type, target, message),
+                                    loop
+                                )
+                            else:
+                                # If no loop is running, create a new one
+                                asyncio.create_task(self._send_queued_message(send_type, target, message))
+                        except RuntimeError:
+                            # No event loop in current thread, skip for now
+                            print(f"⚠️  Skipping message send (no event loop): {message.type.value}")
                 
                 time.sleep(0.01)  # Small delay to prevent busy waiting
             
