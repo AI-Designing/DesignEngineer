@@ -122,7 +122,7 @@ class WebSocketManager:
         
         print("✅ WebSocket server stopped")
     
-    async def handle_client(self, websocket, path):
+    async def handle_client(self, websocket, path=None):
         """Handle new client connection"""
         client_id = f"client_{int(time.time() * 1000)}_{len(self.clients)}"
         

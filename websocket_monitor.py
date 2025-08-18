@@ -41,7 +41,7 @@ class SimpleWebSocketMonitor:
                 async for message in websocket:
                     await self.handle_message(message)
         
-        except websockets.exceptions.ConnectionRefused:
+        except ConnectionRefusedError:
             print("❌ Cannot connect - is the FreeCAD CLI running?")
             print("💡 Start with: python3 -m ai_designer.cli")
         
