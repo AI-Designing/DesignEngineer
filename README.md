@@ -43,9 +43,42 @@ ai-designing-designengineer/
 │           ├── analysis.py          # Design analysis tools
 │           └── validation.py        # Input validation
 ├── examples/                  # Usage examples
+│   ├── demos/                       # Demo scripts
+│   │   ├── demo_continuous_updates.py   # Continuous updates demo
+│   │   ├── demo_persistent_fix.py       # Persistent GUI demo
+│   │   ├── demo_real_execution.py       # Real execution demo
+│   │   ├── demo_realtime_freecad.py     # Real-time FreeCAD demo
+│   │   └── demo_realtime_gui.py         # Real-time GUI demo
+├── tools/                     # Development and utility tools
+│   ├── monitoring/                   # Monitoring tools
+│   │   └── websocket_monitor.py     # WebSocket connection monitor
+│   ├── gui/                         # GUI management tools
+│   │   ├── simple_gui_launcher.py   # Persistent GUI launcher
+│   │   └── direct_gui_commands.py   # Direct GUI command sender
+│   ├── debug/                       # Debugging utilities
+│   ├── testing/                     # Testing tools
+│   └── utilities/                   # General utilities
 │   ├── demo_state_management.py     # State management demo
 │   ├── state_cli_example.py         # CLI usage example
 │   └── websocket_client_example.py  # WebSocket client example
+├── tools/                     # Development and testing tools
+│   ├── monitoring/                   # Real-time monitoring tools
+│   │   └── websocket_monitor.py     # WebSocket real-time monitor
+│   ├── gui/                         # GUI management tools
+│   │   ├── simple_gui_launcher.py   # Persistent FreeCAD GUI launcher
+│   │   └── direct_gui_commands.py   # Direct GUI command sender
+│   ├── debug/                       # Debug and troubleshooting tools
+│   │   ├── debug_freecad_gui.py     # GUI debugging utilities
+│   │   └── debug_gui_communication.py # Communication debugging
+│   ├── testing/                     # Testing and validation tools
+│   │   ├── test_complex_workflow.py # Complex workflow tests
+│   │   ├── test_persistent_gui_fix.py # GUI persistence tests
+│   │   ├── test_realtime_commands.py # Real-time command tests
+│   │   └── test_redis_demo.py       # Redis integration tests
+│   └── utilities/                   # General utilities
+│       ├── verify_real_objects.py   # Object verification utility
+│       ├── create_gear.py           # Gear creation utility
+│       └── quick_test_workflow.py   # Quick workflow testing
 ├── scripts/                   # Utility scripts
 │   ├── run_complex_demo.sh          # Complex shapes demo
 │   └── run_tests.sh                 # Test runner
@@ -330,7 +363,34 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 4. Run quality checks: `black src/ && flake8 src/ && pytest`
 5. Submit a pull request
 
-## 📚 Documentation
+## � Development Tools
+
+AI Designer includes comprehensive development and testing tools located in the `tools/` directory:
+
+### 🔍 Monitoring Tools
+- **WebSocket Monitor** (`tools/monitoring/websocket_monitor.py`): Real-time monitoring of WebSocket communication
+- Live progress tracking and error notifications
+
+### 🖥️ GUI Tools  
+- **GUI Launcher** (`tools/gui/simple_gui_launcher.py`): Persistent FreeCAD GUI management
+- **Direct Commands** (`tools/gui/direct_gui_commands.py`): Send commands directly to GUI via socket
+
+### 🐛 Debug Tools
+- **GUI Debug** (`tools/debug/debug_freecad_gui.py`): FreeCAD GUI debugging utilities
+- **Communication Debug** (`tools/debug/debug_gui_communication.py`): Socket communication testing
+
+### 🧪 Testing Tools
+- **Workflow Tests** (`tools/testing/test_complex_workflow.py`): Complex workflow validation
+- **GUI Tests** (`tools/testing/test_persistent_gui_fix.py`): GUI persistence testing
+- **Real-time Tests** (`tools/testing/test_realtime_commands.py`): Real-time command execution tests
+
+### 🔧 Utilities
+- **Object Verification** (`tools/utilities/verify_real_objects.py`): Verify created FreeCAD objects
+- **Gear Creation** (`tools/utilities/create_gear.py`): Complex gear generation utility
+
+For detailed tool usage, see [`tools/README.md`](tools/README.md).
+
+## �📚 Documentation
 
 - [Architecture Guide](docs/architecture.md) - System architecture overview
 - [State Management](docs/STATE_MANAGEMENT.md) - State management details
@@ -345,7 +405,17 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 - **Timeout Protection**: Prevents infinite loops and hangs
 - **Resource Monitoring**: Memory and CPU usage limits
 
-## 📄 License
+## � Documentation
+
+For detailed information about specific components:
+
+- **[Tools Guide](docs/TOOLS_GUIDE.md)** - Complete guide to development and utility tools
+- **[Examples Guide](docs/EXAMPLES_GUIDE.md)** - Usage examples and demo scripts
+- **[Real-time System Guide](REALTIME_SYSTEM_GUIDE.md)** - WebSocket and real-time features
+- **[Security Guide](docs/SECURITY_GUIDE.md)** - Security features and best practices
+- **[Project Summary](PROJECT_SUMMARY.md)** - High-level project overview
+
+## �📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
