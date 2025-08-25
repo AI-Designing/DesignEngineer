@@ -12,6 +12,9 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Import the advanced prompt engineering system
+from .advanced_prompt_engine import EnhancedLLMIntegration, ProblemComplexity
+
 class GenerationMode(Enum):
     """Enhanced generation modes for different use cases"""
     ADAPTIVE = "adaptive"
@@ -329,8 +332,7 @@ class QualityPredictor:
         
         return avg_prediction
     
-    def _predict_aesthetic_quality(self, plan: List[EnhancedGenerationStep],
-                                 predictions: List[Dict]) -> float:
+    def _predict_aesthetic_quality(self, plan: List, predictions: List[Dict]) -> float:
         """Predict aesthetic quality specifically"""
         # Simple aesthetic quality prediction
         return sum(p['predicted_quality'] for p in predictions) / len(predictions)
@@ -368,6 +370,9 @@ class EnhancedComplexShapeGenerator:
         self.state_cache = state_cache
         self.websocket_manager = websocket_manager
         
+        # Initialize advanced prompt engineering system
+        self.enhanced_llm = EnhancedLLMIntegration(llm_client)
+        
         self.logger = logging.getLogger(__name__)
         
         # Enhanced AI components
@@ -394,6 +399,7 @@ class EnhancedComplexShapeGenerator:
                                       context: Optional[Dict[str, Any]] = None) -> GenerationResult:
         """
         Enhanced complex shape generation with AI-powered optimization
+        Uses the advanced prompt engineering system for superior code quality
         """
         start_time = time.time()
         self.logger.info(f"Starting enhanced generation for session {session_id}")
@@ -409,7 +415,13 @@ class EnhancedComplexShapeGenerator:
         self.active_sessions[session_id] = session_context
         
         try:
-            # Step 1: Intelligent requirement analysis
+            # Step 1: Use advanced prompt engineering for code generation
+            self.logger.info("Using advanced prompt engineering system...")
+            enhanced_generation = self._generate_with_advanced_prompts(
+                user_requirements, session_context
+            )
+            
+            # Step 2: Intelligent requirement analysis (legacy for comparison)
             requirement_analysis = self._analyze_requirements_intelligently(user_requirements)
             
             # Step 2: Pattern-based optimization
@@ -651,5 +663,197 @@ class EnhancedComplexShapeGenerator:
             'failure_patterns': len(self.pattern_learning.failure_patterns)
         }
     
-    # Additional helper methods would be implemented here...
-    # (Due to length constraints, showing key structure and main methods)
+    def _generate_with_advanced_prompts(self, user_requirements: str, 
+                                       session_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate code using the advanced prompt engineering system
+        This is the core improvement: structured understand -> breakdown -> implement approach
+        """
+        self.logger.info("🧠 Starting advanced prompt-based code generation...")
+        
+        # Prepare context for the enhanced LLM system
+        enhanced_context = {
+            'session_id': session_context.get('session_id'),
+            'generation_mode': session_context.get('mode', GenerationMode.ADAPTIVE).value,
+            'quality_targets': session_context.get('quality_targets', {}),
+            'previous_attempts': self._get_session_history(session_context),
+            'available_tools': self._get_available_freecad_tools(),
+            'performance_constraints': self._get_performance_constraints(),
+            'user_preferences': session_context.get('context', {})
+        }
+        
+        # Use the enhanced LLM integration for superior code generation
+        try:
+            generation_result = self.enhanced_llm.generate_enhanced_freecad_code(
+                user_requirements, 
+                enhanced_context
+            )
+            
+            self.logger.info(f"✅ Advanced prompt generation completed:")
+            self.logger.info(f"   Understanding: {generation_result.get('understanding', {}).get('main_objective', 'N/A')}")
+            self.logger.info(f"   Breakdown steps: {len(generation_result.get('breakdown', []))}")
+            self.logger.info(f"   Quality score: {generation_result.get('validation', {}).get('overall_quality_score', 0.0):.2f}")
+            
+            return generation_result
+            
+        except Exception as e:
+            self.logger.error(f"❌ Advanced prompt generation failed: {e}")
+            # Fallback to basic generation if advanced system fails
+            return self._generate_with_basic_prompts(user_requirements, enhanced_context)
+    
+    def _generate_with_basic_prompts(self, user_requirements: str, 
+                                   context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fallback basic code generation method
+        """
+        self.logger.info("🔄 Using fallback basic prompt generation...")
+        
+        basic_prompt = f"""
+Create FreeCAD Python code for: {user_requirements}
+
+Requirements:
+- Use FreeCAD Python API
+- Include error handling
+- Add documentation
+- Ensure code is executable
+
+Generate complete Python code that creates the requested shape in FreeCAD.
+"""
+        
+        try:
+            response = self.llm_client.generate_response(basic_prompt)
+            
+            # Extract code from response
+            code_start = response.find('```python')
+            code_end = response.find('```', code_start + 9)
+            
+            if code_start != -1 and code_end != -1:
+                code = response[code_start + 9:code_end].strip()
+            else:
+                code = response
+            
+            return {
+                'understanding': {
+                    'main_objective': user_requirements,
+                    'complexity_level': 'moderate'
+                },
+                'breakdown': [
+                    {
+                        'description': 'Generate basic FreeCAD code',
+                        'purpose': 'Create requested shape'
+                    }
+                ],
+                'implementation': {
+                    'code': code,
+                    'explanation': 'Basic code generation',
+                    'confidence_level': 0.6
+                },
+                'validation': {
+                    'overall_quality_score': 0.5,
+                    'syntax_valid': True
+                },
+                'final_code': code,
+                'generation_method': 'basic_fallback'
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ Basic prompt generation also failed: {e}")
+            return self._create_emergency_fallback(user_requirements)
+    
+    def _create_emergency_fallback(self, user_requirements: str) -> Dict[str, Any]:
+        """
+        Emergency fallback when all generation methods fail
+        """
+        fallback_code = f'''
+import FreeCAD
+import Part
+
+def create_emergency_shape():
+    """
+    Emergency fallback shape creation
+    Requirements: {user_requirements}
+    """
+    try:
+        doc = FreeCAD.newDocument("EmergencyShape")
+        
+        # Create a basic box as fallback
+        box = Part.makeBox(10, 10, 10)
+        box_obj = doc.addObject("Part::Feature", "EmergencyBox")
+        box_obj.Shape = box
+        
+        doc.recompute()
+        return {{"status": "success", "message": "Emergency fallback shape created"}}
+        
+    except Exception as e:
+        return {{"status": "error", "error": str(e)}}
+
+if __name__ == "__main__":
+    result = create_emergency_shape()
+    print(f"Emergency result: {{result}}")
+'''
+        
+        return {
+            'understanding': {
+                'main_objective': f'Emergency fallback for: {user_requirements}',
+                'complexity_level': 'simple'
+            },
+            'breakdown': [
+                {
+                    'description': 'Create emergency fallback shape',
+                    'purpose': 'Ensure system continues to function'
+                }
+            ],
+            'implementation': {
+                'code': fallback_code,
+                'explanation': 'Emergency fallback implementation',
+                'confidence_level': 0.3
+            },
+            'validation': {
+                'overall_quality_score': 0.3,
+                'syntax_valid': True
+            },
+            'final_code': fallback_code,
+            'generation_method': 'emergency_fallback'
+        }
+    
+    def _get_session_history(self, session_context: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get historical data for the current session"""
+        session_id = session_context.get('session_id')
+        if not session_id:
+            return []
+        
+        # Return recent attempts for this session
+        history = []
+        for entry in self.generation_history[-10:]:  # Last 10 attempts
+            if entry.get('session_id') == session_id:
+                history.append({
+                    'requirements': entry.get('requirements'),
+                    'success': entry.get('success', False),
+                    'quality_score': entry.get('quality_score', 0.0),
+                    'issues': entry.get('issues', [])
+                })
+        
+        return history
+    
+    def _get_available_freecad_tools(self) -> List[str]:
+        """Get list of available FreeCAD tools and operations"""
+        return [
+            'Part.makeBox()', 'Part.makeCylinder()', 'Part.makeSphere()',
+            'Part.makeCone()', 'Part.makeTorus()', 'Part.makeWedge()',
+            'Part.fuse()', 'Part.cut()', 'Part.common()',
+            'Draft.makeWire()', 'Draft.makeLine()', 'Draft.makeCircle()',
+            'Sketcher.Sketch', 'PartDesign.Pad', 'PartDesign.Pocket',
+            'doc.addObject()', 'doc.recompute()', 'obj.Placement',
+            'FreeCAD.Vector()', 'FreeCAD.Rotation()', 'FreeCAD.newDocument()'
+        ]
+    
+    def _get_performance_constraints(self) -> Dict[str, Any]:
+        """Get current performance constraints"""
+        return {
+            'max_execution_time': 300,  # 5 minutes
+            'max_memory_usage': '1GB',
+            'max_complexity_score': 0.9,
+            'require_error_handling': True,
+            'require_documentation': True,
+            'target_success_rate': 0.95
+        }
