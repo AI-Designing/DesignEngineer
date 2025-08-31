@@ -1,8 +1,43 @@
 api_key: "your_api_key_here"
 freecad_api_url: "http://localhost:8080"
+
+# DeepSeek R1 Local Configuration
+deepseek:
+  enabled: true
+  host: "localhost"
+  port: 11434
+  model_name: "deepseek-r1"
+  timeout: 300
+  max_tokens: 8192
+  temperature: 0.1
+  top_p: 0.95
+  reasoning_enabled: true
+  stream: false
+  fallback_to_gemini: true
+
 redis:
   host: "localhost"
   port: 6379
   db: 0
+
 command_timeout: 30
 log_level: "INFO"
+
+# Enhanced Complex Generator Settings
+enhanced_generator:
+  use_deepseek: true
+  quality_targets:
+    geometric_accuracy: 0.9
+    design_consistency: 0.85
+    aesthetic_quality: 0.8
+    manufacturability: 0.9
+    performance_score: 0.85
+  
+  pattern_learning:
+    enabled: true
+    max_patterns: 1000
+    similarity_threshold: 0.6
+  
+  quality_prediction:
+    enabled: true
+    confidence_threshold: 0.7

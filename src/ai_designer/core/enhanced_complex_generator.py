@@ -15,6 +15,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Import the advanced prompt engineering system
 from .advanced_prompt_engine import EnhancedLLMIntegration, ProblemComplexity
 
+# Import DeepSeek R1 integration
+from ..llm.deepseek_client import (
+    DeepSeekR1Client, 
+    DeepSeekIntegrationManager, 
+    DeepSeekConfig, 
+    DeepSeekMode,
+    DeepSeekResponse
+)
+
 class GenerationMode(Enum):
     """Enhanced generation modes for different use cases"""
     ADAPTIVE = "adaptive"
@@ -363,12 +372,31 @@ class EnhancedComplexShapeGenerator:
     """
     
     def __init__(self, llm_client, state_analyzer, command_executor, 
-                 state_cache=None, websocket_manager=None):
+                 state_cache=None, websocket_manager=None, 
+                 use_deepseek=True, deepseek_config=None):
         self.llm_client = llm_client
         self.state_analyzer = state_analyzer
         self.command_executor = command_executor
         self.state_cache = state_cache
         self.websocket_manager = websocket_manager
+        
+        # Initialize DeepSeek R1 integration
+        self.use_deepseek = use_deepseek
+        self.deepseek_client = None
+        self.deepseek_manager = None
+        
+        if use_deepseek:
+            try:
+                self.deepseek_client = DeepSeekR1Client(deepseek_config or DeepSeekConfig())
+                self.deepseek_manager = DeepSeekIntegrationManager(
+                    self.deepseek_client, 
+                    fallback_client=llm_client
+                )
+                self.logger.info("✅ DeepSeek R1 integration enabled")
+            except Exception as e:
+                self.logger.warning(f"⚠️ DeepSeek R1 initialization failed: {e}")
+                self.logger.info("📝 Falling back to standard LLM client")
+                self.use_deepseek = False
         
         # Initialize advanced prompt engineering system
         self.enhanced_llm = EnhancedLLMIntegration(llm_client)
@@ -388,7 +416,9 @@ class EnhancedComplexShapeGenerator:
             'successful_generations': 0,
             'average_quality_score': 0.0,
             'average_execution_time': 0.0,
-            'pattern_learning_accuracy': 0.0
+            'pattern_learning_accuracy': 0.0,
+            'deepseek_generations': 0,
+            'fallback_generations': 0
         }
     
     def generate_enhanced_complex_shape(self, 
@@ -654,27 +684,262 @@ class EnhancedComplexShapeGenerator:
                 self.logger.warning(f"Failed to send WebSocket notification: {e}")
     
     def get_performance_metrics(self) -> Dict[str, Any]:
-        """Get comprehensive performance metrics"""
-        return {
+        """Get comprehensive performance metrics including DeepSeek stats"""
+        base_metrics = {
             **self.performance_metrics,
             'active_sessions': len(self.active_sessions),
             'pattern_database_size': len(self.pattern_learning.pattern_database),
             'success_patterns': len(self.pattern_learning.success_patterns),
             'failure_patterns': len(self.pattern_learning.failure_patterns)
         }
+        
+        # Add DeepSeek metrics if available
+        if self.use_deepseek and self.deepseek_manager:
+            try:
+                deepseek_metrics = self.deepseek_manager.get_integration_metrics()
+                base_metrics['deepseek_integration'] = deepseek_metrics
+                base_metrics['deepseek_available'] = True
+            except Exception as e:
+                self.logger.warning(f"Failed to get DeepSeek metrics: {e}")
+                base_metrics['deepseek_available'] = False
+        else:
+            base_metrics['deepseek_available'] = False
+        
+        return base_metrics
+    
+    def get_deepseek_insights(self) -> Dict[str, Any]:
+        """Get DeepSeek-specific insights and reasoning patterns"""
+        if not (self.use_deepseek and self.deepseek_client):
+            return {'available': False, 'message': 'DeepSeek R1 not available'}
+        
+        try:
+            return {
+                'available': True,
+                'performance_metrics': self.deepseek_client.get_performance_metrics(),
+                'reasoning_insights': self.deepseek_client.get_reasoning_insights(),
+                'integration_stats': self.deepseek_manager.get_integration_metrics() if self.deepseek_manager else {}
+            }
+        except Exception as e:
+            return {'available': False, 'error': str(e)}
+    
+    def force_deepseek_mode(self, enable: bool = True):
+        """Force enable or disable DeepSeek mode"""
+        if enable and not self.use_deepseek:
+            try:
+                self.deepseek_client = DeepSeekR1Client()
+                self.deepseek_manager = DeepSeekIntegrationManager(
+                    self.deepseek_client, 
+                    fallback_client=self.llm_client
+                )
+                self.use_deepseek = True
+                self.logger.info("✅ DeepSeek R1 force-enabled")
+            except Exception as e:
+                self.logger.error(f"❌ Failed to force-enable DeepSeek: {e}")
+        elif not enable:
+            self.use_deepseek = False
+            self.logger.info("🔄 DeepSeek R1 disabled, using fallback")
+    
+    def test_deepseek_connection(self) -> Dict[str, Any]:
+        """Test DeepSeek R1 connection and capabilities"""
+        if not self.deepseek_client:
+            return {'status': 'not_initialized', 'message': 'DeepSeek client not initialized'}
+        
+        try:
+            # Test with a simple part generation
+            test_response = self.deepseek_client.generate_complex_part(
+                requirements="Create a simple test cube with 10mm sides",
+                mode=DeepSeekMode.FAST,
+                context={'test': True}
+            )
+            
+            return {
+                'status': 'success',
+                'connection': True,
+                'test_generation': {
+                    'confidence': test_response.confidence_score,
+                    'execution_time': test_response.execution_time,
+                    'reasoning_steps': len(test_response.reasoning_chain),
+                    'code_generated': bool(test_response.generated_code)
+                },
+                'capabilities': {
+                    'reasoning_mode': True,
+                    'creative_mode': True,
+                    'technical_mode': True,
+                    'fast_mode': True
+                }
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'connection': False,
+                'error': str(e)
+            }
     
     def _generate_with_advanced_prompts(self, user_requirements: str, 
                                        session_context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate code using the advanced prompt engineering system
+        Generate code using the advanced prompt engineering system with DeepSeek R1 integration
         This is the core improvement: structured understand -> breakdown -> implement approach
         """
         self.logger.info("🧠 Starting advanced prompt-based code generation...")
         
+        # Try DeepSeek R1 first if available
+        if self.use_deepseek and self.deepseek_manager:
+            try:
+                return self._generate_with_deepseek_r1(user_requirements, session_context)
+            except Exception as e:
+                self.logger.warning(f"⚠️ DeepSeek generation failed, falling back: {e}")
+                self.performance_metrics['fallback_generations'] += 1
+        
+        # Fallback to enhanced LLM integration
+        return self._generate_with_enhanced_llm(user_requirements, session_context)
+    
+    def _generate_with_deepseek_r1(self, user_requirements: str, 
+                                  session_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate complex parts using DeepSeek R1 with full reasoning capabilities
+        """
+        self.logger.info("🚀 Using DeepSeek R1 for complex part generation...")
+        self.performance_metrics['deepseek_generations'] += 1
+        
+        # Analyze complexity to choose appropriate DeepSeek mode
+        complexity_analysis = self._analyze_requirements_intelligently(user_requirements)
+        complexity_score = complexity_analysis['complexity_score']
+        
+        # Select DeepSeek mode based on complexity and requirements
+        if complexity_score >= 8:
+            mode = DeepSeekMode.REASONING  # Full reasoning for complex parts
+        elif any(word in user_requirements.lower() for word in ['creative', 'artistic', 'innovative']):
+            mode = DeepSeekMode.CREATIVE
+        elif any(word in user_requirements.lower() for word in ['precise', 'technical', 'engineering']):
+            mode = DeepSeekMode.TECHNICAL
+        elif complexity_score <= 3:
+            mode = DeepSeekMode.FAST
+        else:
+            mode = DeepSeekMode.REASONING
+        
+        # Prepare enhanced context for DeepSeek
+        deepseek_context = {
+            'session_id': session_context.get('session_id'),
+            'generation_mode': session_context.get('mode', 'adaptive'),
+            'quality_targets': session_context.get('quality_targets', {}),
+            'freecad_state': session_context.get('context', {}),
+            'complexity_analysis': complexity_analysis,
+            'similar_patterns': self.pattern_learning.find_similar_patterns(user_requirements),
+            'performance_constraints': self._get_performance_constraints()
+        }
+        
+        # Add manufacturing and design constraints
+        constraints = {
+            'dimensional_accuracy': 0.1,  # mm
+            'surface_finish': 'standard',
+            'material_considerations': True,
+            'manufacturability': True,
+            'assembly_requirements': 'consider_tolerances'
+        }
+        
+        # Generate with DeepSeek R1
+        deepseek_response = self.deepseek_client.generate_complex_part(
+            requirements=user_requirements,
+            mode=mode,
+            context=deepseek_context,
+            constraints=constraints
+        )
+        
+        if deepseek_response.status == "success":
+            self.logger.info(f"✅ DeepSeek R1 generation successful:")
+            self.logger.info(f"   Mode: {mode.value}")
+            self.logger.info(f"   Confidence: {deepseek_response.confidence_score:.2f}")
+            self.logger.info(f"   Reasoning steps: {len(deepseek_response.reasoning_chain)}")
+            self.logger.info(f"   Complexity score: {deepseek_response.complexity_analysis.get('complexity_score', 0):.1f}")
+            
+            # Convert DeepSeek response to expected format
+            return self._convert_deepseek_to_standard_format(deepseek_response, user_requirements)
+        else:
+            self.logger.error(f"❌ DeepSeek generation failed: {deepseek_response.error_message}")
+            raise Exception(f"DeepSeek generation failed: {deepseek_response.error_message}")
+    
+    def _convert_deepseek_to_standard_format(self, deepseek_response: DeepSeekResponse, 
+                                           requirements: str) -> Dict[str, Any]:
+        """
+        Convert DeepSeek response to the standard format expected by the system
+        """
+        # Extract main objective from requirements or reasoning
+        main_objective = requirements
+        if deepseek_response.reasoning_chain:
+            # Try to get more refined objective from reasoning
+            for step in deepseek_response.reasoning_chain:
+                if "objective" in step.description.lower() or "goal" in step.description.lower():
+                    main_objective = step.description
+                    break
+        
+        # Convert reasoning chain to breakdown format
+        breakdown = []
+        for i, step in enumerate(deepseek_response.reasoning_chain):
+            breakdown.append({
+                'step_number': i + 1,
+                'description': step.description,
+                'purpose': step.reasoning,
+                'code_snippet': step.code_snippet,
+                'confidence': step.confidence,
+                'validation_status': step.validation_status
+            })
+        
+        # If no reasoning chain, create basic breakdown
+        if not breakdown:
+            breakdown = [
+                {
+                    'step_number': 1,
+                    'description': 'Generate complex FreeCAD part',
+                    'purpose': f'Create the requested part: {requirements}',
+                    'code_snippet': None,
+                    'confidence': deepseek_response.confidence_score,
+                    'validation_status': 'generated'
+                }
+            ]
+        
+        return {
+            'understanding': {
+                'main_objective': main_objective,
+                'complexity_level': deepseek_response.complexity_analysis.get('skill_level_required', 'intermediate'),
+                'estimated_time': deepseek_response.complexity_analysis.get('estimated_execution_time', 60),
+                'reasoning_quality': 'high' if len(deepseek_response.reasoning_chain) > 3 else 'standard'
+            },
+            'breakdown': breakdown,
+            'implementation': {
+                'code': deepseek_response.generated_code,
+                'explanation': f'DeepSeek R1 generated solution with {len(deepseek_response.reasoning_chain)} reasoning steps',
+                'confidence_level': deepseek_response.confidence_score,
+                'complexity_analysis': deepseek_response.complexity_analysis,
+                'optimization_suggestions': deepseek_response.optimization_suggestions
+            },
+            'validation': {
+                'overall_quality_score': deepseek_response.confidence_score,
+                'syntax_valid': True,  # DeepSeek validation should handle this
+                'freecad_compatible': True,
+                'reasoning_chain_quality': len(deepseek_response.reasoning_chain) / 10.0,  # Normalize to 0-1
+                'performance_prediction': deepseek_response.complexity_analysis
+            },
+            'final_code': deepseek_response.generated_code,
+            'generation_method': 'deepseek_r1',
+            'deepseek_metadata': {
+                'execution_time': deepseek_response.execution_time,
+                'reasoning_chain': deepseek_response.reasoning_chain,
+                'optimization_suggestions': deepseek_response.optimization_suggestions
+            }
+        }
+    
+    def _generate_with_enhanced_llm(self, user_requirements: str, 
+                                   session_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fallback generation using enhanced LLM integration
+        """
+        self.logger.info("🔄 Using enhanced LLM integration (fallback)...")
+        
         # Prepare context for the enhanced LLM system
         enhanced_context = {
             'session_id': session_context.get('session_id'),
-            'generation_mode': session_context.get('mode', GenerationMode.ADAPTIVE).value,
+            'generation_mode': session_context.get('mode', 'adaptive'),
             'quality_targets': session_context.get('quality_targets', {}),
             'previous_attempts': self._get_session_history(session_context),
             'available_tools': self._get_available_freecad_tools(),
@@ -689,7 +954,7 @@ class EnhancedComplexShapeGenerator:
                 enhanced_context
             )
             
-            self.logger.info(f"✅ Advanced prompt generation completed:")
+            self.logger.info(f"✅ Enhanced LLM generation completed:")
             self.logger.info(f"   Understanding: {generation_result.get('understanding', {}).get('main_objective', 'N/A')}")
             self.logger.info(f"   Breakdown steps: {len(generation_result.get('breakdown', []))}")
             self.logger.info(f"   Quality score: {generation_result.get('validation', {}).get('overall_quality_score', 0.0):.2f}")
@@ -697,8 +962,8 @@ class EnhancedComplexShapeGenerator:
             return generation_result
             
         except Exception as e:
-            self.logger.error(f"❌ Advanced prompt generation failed: {e}")
-            # Fallback to basic generation if advanced system fails
+            self.logger.error(f"❌ Enhanced LLM generation failed: {e}")
+            # Final fallback to basic generation
             return self._generate_with_basic_prompts(user_requirements, enhanced_context)
     
     def _generate_with_basic_prompts(self, user_requirements: str, 

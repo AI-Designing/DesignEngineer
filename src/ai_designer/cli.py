@@ -15,6 +15,8 @@ try:
     from ai_designer.redis_utils.client import RedisClient
     from ai_designer.redis_utils.state_cache import StateCache
     from ai_designer.realtime.websocket_manager import WebSocketManager, ProgressTracker
+    from ai_designer.llm.deepseek_client import DeepSeekR1Client, DeepSeekIntegrationManager, DeepSeekMode
+    from ai_designer.core.enhanced_complex_generator import EnhancedComplexShapeGenerator
 except ImportError:
     # Fallback for when running as script
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -26,9 +28,11 @@ except ImportError:
     from ai_designer.redis_utils.client import RedisClient
     from ai_designer.redis_utils.state_cache import StateCache
     from ai_designer.realtime.websocket_manager import WebSocketManager, ProgressTracker
+    from ai_designer.llm.deepseek_client import DeepSeekR1Client, DeepSeekIntegrationManager, DeepSeekMode
+    from ai_designer.core.enhanced_complex_generator import EnhancedComplexShapeGenerator
 
 class FreeCADCLI:
-    def __init__(self, use_headless=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True, enable_websocket=True, enable_persistent_gui=True):
+    def __init__(self, use_headless=True, llm_provider="openai", llm_api_key=None, auto_open_gui=True, enable_websocket=True, enable_persistent_gui=True, deepseek_enabled=False, deepseek_mode="reasoning", deepseek_port=11434):
         self.api_client = FreeCADAPIClient(use_headless=use_headless)
         self.command_executor = None
         self.state_cache = None
@@ -36,6 +40,13 @@ class FreeCADCLI:
         self.llm_provider = llm_provider
         self.llm_api_key = llm_api_key
         self.auto_open_gui = auto_open_gui
+        
+        # DeepSeek R1 configuration
+        self.deepseek_enabled = deepseek_enabled
+        self.deepseek_mode = deepseek_mode
+        self.deepseek_port = deepseek_port
+        self.deepseek_client = None
+        self.enhanced_generator = None
         
         # WebSocket and real-time features
         self.enable_websocket = enable_websocket
@@ -78,6 +89,23 @@ class FreeCADCLI:
         """Initialize FreeCAD connection and command executor"""
         print("Initializing FreeCAD CLI...")
         
+        # Initialize DeepSeek R1 if enabled
+        if self.deepseek_enabled:
+            try:
+                print(f"🧠 Initializing DeepSeek R1 client on port {self.deepseek_port}...")
+                from ai_designer.llm.deepseek_client import DeepSeekConfig
+                config = DeepSeekConfig(
+                    host="localhost",
+                    port=self.deepseek_port,
+                    timeout=120
+                )
+                self.deepseek_client = DeepSeekR1Client(config=config)
+                print("✅ DeepSeek R1 client ready")
+            except Exception as e:
+                print(f"⚠️  DeepSeek R1 initialization failed: {e}")
+                print("Continuing with standard LLM providers...")
+                self.deepseek_enabled = False
+        
         # Start WebSocket server if enabled
         if self.enable_websocket and self.websocket_manager:
             self._start_websocket_server()
@@ -110,6 +138,30 @@ class FreeCADCLI:
                 persistent_gui=self.persistent_gui if self.enable_persistent_gui else None
             )
             self.state_analyzer = FreeCADStateAnalyzer(self.api_client)
+            
+            # Initialize enhanced generator with DeepSeek after command executor is ready
+            if self.deepseek_enabled and self.deepseek_client:
+                try:
+                    print("🔧 Initializing Enhanced Complex Generator with DeepSeek R1...")
+                    from ai_designer.llm.deepseek_client import DeepSeekConfig
+                    config = DeepSeekConfig(
+                        host="localhost",
+                        port=self.deepseek_port,
+                        timeout=120
+                    )
+                    self.enhanced_generator = EnhancedComplexShapeGenerator(
+                        llm_client=None,  # Will use DeepSeek
+                        state_analyzer=self.state_analyzer,
+                        command_executor=self.command_executor,
+                        state_cache=self.state_cache,
+                        websocket_manager=self.websocket_manager,
+                        use_deepseek=True,
+                        deepseek_config=config
+                    )
+                    print("✅ Enhanced Complex Generator with DeepSeek R1 ready")
+                except Exception as e:
+                    print(f"⚠️  Enhanced generator initialization failed: {e}")
+                    self.enhanced_generator = None
             
             return True
         else:
@@ -229,6 +281,19 @@ class FreeCADCLI:
                 elif user_input.lower() in ['restart-gui', 'gui-restart']:
                     # Restart persistent GUI
                     self.restart_persistent_gui()
+                
+                elif user_input.startswith('deepseek '):
+                    # DeepSeek R1 specific command
+                    deepseek_command = user_input[9:].strip()
+                    if self.deepseek_enabled:
+                        self.execute_deepseek_command(deepseek_command)
+                    else:
+                        print("❌ DeepSeek R1 is not enabled. Use --deepseek-enabled flag when starting CLI.")
+                
+                elif self.deepseek_enabled and any(keyword in user_input.lower() for keyword in ['gear', 'complex', 'bracket', 'assembly', 'housing', 'detailed']):
+                    # Auto-detect complex commands that should use DeepSeek R1
+                    print(f"🧠 Complex command detected - using DeepSeek R1: {user_input}")
+                    self.execute_deepseek_command(user_input)
                 
                 else:
                     self.execute_command(user_input)
@@ -554,12 +619,183 @@ class FreeCADCLI:
         for i, cmd in enumerate(history[-10:], 1):  # Show last 10 commands
             print(f"{i:2d}. {cmd[:50]}{'...' if len(cmd) > 50 else ''}")
 
+    def execute_deepseek_command(self, command):
+        """Execute command using DeepSeek R1 for complex part generation"""
+        if not self.deepseek_enabled or not self.deepseek_client:
+            print("❌ DeepSeek R1 is not enabled or not initialized")
+            return
+        
+        command_id = f"deepseek_cmd_{int(time.time() * 1000)}"
+        
+        try:
+            print(f"🧠 Processing with DeepSeek R1 ({self.deepseek_mode} mode): {command}")
+            
+            # Send initial progress update
+            if self.progress_tracker:
+                self.progress_tracker.start_tracking(command_id, 6, self.session_id)
+            
+            # Convert mode string to enum
+            mode_map = {
+                'reasoning': DeepSeekMode.REASONING,
+                'streaming': DeepSeekMode.STREAMING,
+                'batch': DeepSeekMode.BATCH
+            }
+            mode = mode_map.get(self.deepseek_mode, DeepSeekMode.REASONING)
+            
+            # Progress update
+            if self.progress_tracker:
+                self.progress_tracker.update_progress(command_id, 1, "Initializing DeepSeek R1 reasoning...")
+            
+            # Use DeepSeek R1 for complex part generation
+            if self.enhanced_generator:
+                print("🎯 Using Enhanced Complex Generator with DeepSeek R1...")
+                
+                # Progress update
+                if self.progress_tracker:
+                    self.progress_tracker.update_progress(command_id, 2, "Analyzing command complexity...")
+                
+                # Use enhanced generator's DeepSeek integration
+                session_id = f"deepseek_{int(time.time())}"
+                result = self.enhanced_generator.generate_enhanced_complex_shape(
+                    user_requirements=command,
+                    session_id=session_id,
+                    context={'deepseek_mode': mode, 'force_deepseek': True}
+                )
+                
+                # Progress update
+                if self.progress_tracker:
+                    self.progress_tracker.update_progress(command_id, 4, "Generating FreeCAD code...")
+                
+                # Execute the generated FreeCAD code if successful
+                if result and result.status == 'success':
+                    # Extract FreeCAD code from generated objects
+                    freecad_code = ""
+                    reasoning = getattr(result, 'reasoning', 'Advanced DeepSeek R1 reasoning applied')
+                    
+                    # Get FreeCAD code from generation result
+                    if hasattr(result, 'generated_objects') and result.generated_objects:
+                        # Extract code from generated objects
+                        for obj in result.generated_objects:
+                            if 'code' in obj:
+                                freecad_code += obj['code'] + "\n"
+                    
+                    # If no code in objects, check for freecad_code attribute
+                    if not freecad_code and hasattr(result, 'freecad_code'):
+                        freecad_code = result.freecad_code
+                    
+                    # Display DeepSeek results
+                    print(f"\n🧠 DeepSeek R1 Generation Results:")
+                    print("=" * 50)
+                    print(f"Status: ✅ {result.status}")
+                    print(f"Steps: {result.successful_steps}/{result.total_steps}")
+                    print(f"Quality Score: {result.quality_metrics.overall_score:.2f}")
+                    print(f"Execution Time: {result.execution_time:.2f}s")
+                    if reasoning:
+                        print(f"Reasoning: {reasoning[:300]}..." if len(reasoning) > 300 else reasoning)
+                    print("=" * 50)
+                    
+                    if freecad_code:
+                        print(f"\n🔧 Generated FreeCAD Code:")
+                        print(freecad_code[:300] + "..." if len(freecad_code) > 300 else freecad_code)
+                        
+                        # Execute in FreeCAD
+                        if self.progress_tracker:
+                            self.progress_tracker.update_progress(command_id, 5, "Executing in FreeCAD...")
+                        
+                        exec_result = self.command_executor.execute(freecad_code)
+                        
+                        if exec_result.get("status") == "success":
+                            print(f"✅ DeepSeek R1 SUCCESS: {exec_result.get('message', 'Code executed successfully')}")
+                            
+                            # Send to persistent GUI if available
+                            if self.enable_persistent_gui and self.persistent_gui and self.persistent_gui.is_gui_running():
+                                print("📡 Sending to persistent GUI...")
+                                gui_success = self.persistent_gui.execute_script_in_gui(freecad_code)
+                                if gui_success:
+                                    print("✅ Real-time GUI update completed")
+                                    self.persistent_gui.update_gui_view()
+                            
+                            # Complete progress tracking
+                            if self.progress_tracker:
+                                self.progress_tracker.complete_tracking(command_id, True, "DeepSeek R1 generation completed successfully")
+                        else:
+                            print(f"❌ FreeCAD execution failed: {exec_result.get('message', 'Execution failed')}")
+                            if self.progress_tracker:
+                                self.progress_tracker.fail_tracking(command_id, f"FreeCAD execution failed: {exec_result.get('message')}")
+                    else:
+                        print("⚠️  No FreeCAD code generated")
+                        if self.progress_tracker:
+                            self.progress_tracker.fail_tracking(command_id, "No FreeCAD code generated")
+                else:
+                    error_msg = getattr(result, 'error', 'Unknown error') if result else 'No response from DeepSeek R1'
+                    print(f"❌ DeepSeek R1 generation failed: {error_msg}")
+                    if self.progress_tracker:
+                        self.progress_tracker.fail_tracking(command_id, error_msg)
+            else:
+                # Direct DeepSeek R1 API call
+                print("🔧 Using direct DeepSeek R1 API...")
+                
+                # Progress update
+                if self.progress_tracker:
+                    self.progress_tracker.update_progress(command_id, 2, "Sending request to DeepSeek R1...")
+                
+                response = asyncio.run(self.deepseek_client.generate_complex_part(
+                    prompt=command,
+                    mode=mode,
+                    enable_reasoning=True
+                ))
+                
+                if response and response.success:
+                    print(f"\n🧠 DeepSeek R1 Response:")
+                    print("=" * 50)
+                    print(f"Reasoning: {response.reasoning[:300]}..." if len(response.reasoning) > 300 else response.reasoning)
+                    print(f"FreeCAD Code: {response.freecad_code[:300]}..." if len(response.freecad_code) > 300 else response.freecad_code)
+                    print("=" * 50)
+                    
+                    # Execute the code
+                    if response.freecad_code:
+                        if self.progress_tracker:
+                            self.progress_tracker.update_progress(command_id, 4, "Executing generated code...")
+                        
+                        exec_result = self.command_executor.execute(response.freecad_code)
+                        
+                        if exec_result.get("status") == "success":
+                            print(f"✅ SUCCESS: {exec_result.get('message', 'Code executed successfully')}")
+                            if self.progress_tracker:
+                                self.progress_tracker.complete_tracking(command_id, True, "DeepSeek R1 direct API completed successfully")
+                        else:
+                            print(f"❌ Execution failed: {exec_result.get('message', 'Execution failed')}")
+                            if self.progress_tracker:
+                                self.progress_tracker.fail_tracking(command_id, f"Execution failed: {exec_result.get('message')}")
+                else:
+                    error_msg = response.error if response else "No response from DeepSeek R1"
+                    print(f"❌ DeepSeek R1 API failed: {error_msg}")
+                    if self.progress_tracker:
+                        self.progress_tracker.fail_tracking(command_id, error_msg)
+                
+        except Exception as e:
+            print(f"❌ DeepSeek R1 Exception: {e}")
+            if self.progress_tracker:
+                self.progress_tracker.fail_tracking(command_id, str(e))
+            import traceback
+            traceback.print_exc()
+
     def show_help(self):
         """Show help information"""
         help_text = """
-🚀 Phase 2 & 3 Enhanced FreeCAD CLI - Advanced Workflow System
+🚀 Phase 2 & 3 Enhanced FreeCAD CLI - Advanced Workflow System with DeepSeek R1
 
 Available Commands:
+  🧠 DeepSeek R1 Complex Part Generation:
+    - deepseek create detailed gear with 20 teeth    Use DeepSeek R1 reasoning for complex parts
+    - deepseek design bracket with mounting holes    Advanced AI-driven part generation
+    - deepseek build mechanical assembly             Multi-component system design
+    
+    Auto-Detection (when --deepseek-enabled):
+    - create gear with 20 teeth and hub              Auto-detected as complex → uses DeepSeek R1
+    - design detailed bracket assembly               Auto-detected as complex → uses DeepSeek R1
+    - build complex housing with features            Auto-detected as complex → uses DeepSeek R1
+
   🎯 Smart Natural Language Processing:
     - create box 10x20x30                    Create a box with dimensions
     - create cylinder radius 5               Create a cylinder  
@@ -1041,6 +1277,9 @@ def main():
     parser.add_argument('--no-websocket', action='store_true', help='Disable WebSocket server for real-time updates')
     parser.add_argument('--no-persistent-gui', action='store_true', help='Disable persistent FreeCAD GUI')
     parser.add_argument('--websocket-port', type=int, default=8765, help='WebSocket server port (default: 8765)')
+    parser.add_argument('--deepseek-enabled', action='store_true', help='Enable DeepSeek R1 for complex part generation')
+    parser.add_argument('--deepseek-mode', choices=['reasoning', 'streaming', 'batch'], default='reasoning', help='DeepSeek R1 generation mode')
+    parser.add_argument('--deepseek-port', type=int, default=11434, help='DeepSeek R1 server port (default: 11434)')
     args = parser.parse_args()
     
     # Initialize CLI with new features
@@ -1049,7 +1288,10 @@ def main():
         llm_provider=args.llm_provider, 
         llm_api_key=args.llm_api_key,
         enable_websocket=not args.no_websocket,
-        enable_persistent_gui=not args.no_persistent_gui
+        enable_persistent_gui=not args.no_persistent_gui,
+        deepseek_enabled=args.deepseek_enabled,
+        deepseek_mode=args.deepseek_mode,
+        deepseek_port=args.deepseek_port
     )
     
     if args.analyze:
