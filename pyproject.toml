@@ -41,10 +41,21 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=6.2.4",
-    "black",
-    "flake8",
-    "mypy",
+    "pytest>=7.4.2",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.1",
+    "black>=23.9.1",
+    "flake8>=6.1.0",
+    "isort>=5.12.0",
+    "mypy>=1.5.1",
+    "pylint>=2.17.5",
+    "bandit[toml]>=1.7.5",
+    "pre-commit>=3.4.0",
+    "safety>=2.3.5",
+    "coverage>=7.3.0",
+    "types-PyYAML>=6.0.12",
+    "types-requests>=2.31.0",
+    "types-redis>=4.6.0",
 ]
 docs = [
     "sphinx",
@@ -84,12 +95,48 @@ extend-exclude = '''
 )/
 '''
 
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["ai_designer"]
+known_third_party = ["flask", "redis", "openai", "numpy", "yaml", "websockets", "fastapi", "uvicorn", "torch", "transformers"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml"
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/build/*",
+    "*/dist/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+skip_covered = false
 
 [tool.mypy]
 python_version = "3.8"
@@ -105,3 +152,29 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 strict_equality = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "FreeCAD.*",
+    "freecad.*",
+]
+ignore_missing_imports = true
+
+[tool.pylint.messages_control]
+disable = [
+    "C0103",  # Invalid name
+    "C0114",  # Missing module docstring
+    "C0115",  # Missing class docstring
+    "C0116",  # Missing function docstring
+    "R0903",  # Too few public methods
+    "R0913",  # Too many arguments
+    "W0613",  # Unused argument
+]
+
+[tool.pylint.format]
+max-line-length = 88
+
+[tool.bandit]
+exclude_dirs = ["tests", "venv", "build", "dist"]
+skips = ["B101", "B601"]
