@@ -27,7 +27,7 @@ class DeepSeekConfig:
     """Configuration for DeepSeek R1 local instance"""
     host: str = "localhost"
     port: int = 8000
-    model_name: str = "deepseek-r1"
+    model_name: str = "deepseek-r1:14b"
     timeout: int = 300
     max_tokens: int = 8192
     temperature: float = 0.1
@@ -85,7 +85,7 @@ class DeepSeekR1Client:
     def _verify_connection(self):
         """Verify connection to DeepSeek R1 local server"""
         try:
-            response = self.session.get(f"{self.base_url}/health", timeout=10)
+            response = self.session.get(f"{self.base_url}/api/version", timeout=10)
             if response.status_code == 200:
                 logger.info("✅ DeepSeek R1 connection verified")
                 return True

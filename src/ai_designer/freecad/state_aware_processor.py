@@ -731,7 +731,8 @@ print(f"SUCCESS: Hole created - radius {radius}mm, depth {depth}mm")
             execution_context = {
                 'session_id': self.session_id,
                 'current_state': current_state,
-                'workflow_analysis': workflow_analysis
+                'workflow_analysis': workflow_analysis,
+                'original_command': nl_command  # Add original command for proper context
             }
             
             execution_result = self.workflow_orchestrator.execute_workflow_steps(sorted_steps, execution_context)

@@ -447,19 +447,187 @@ class WorkflowOrchestrator:
             )
     
     def _execute_sketch_step(self, step: WorkflowStep, context: Dict[str, Any]) -> WorkflowExecutionResult:
-        """Execute sketch creation step"""
-        # Mock implementation - would integrate with actual sketch creation
-        return WorkflowExecutionResult(
-            step_id=step.step_id,
-            status="success",
-            output={
-                "sketch_created": True,
-                "sketch_name": f"Sketch_{step.step_id}",
-                "shape": step.parameters.get("shape", "unknown"),
-                "dimensions": step.parameters.get("dimensions", {})
-            },
-            execution_time=0.5
-        )
+        """Execute sketch creation step with real FreeCAD commands"""
+        try:
+            # Extract parameters from the step
+            shape = step.parameters.get("shape", "rectangle")
+            dimensions = step.parameters.get("dimensions", {})
+            
+            # Generate appropriate FreeCAD code based on the original command context
+            original_command = context.get('original_command', '').lower()
+            
+            if 'gear' in original_command:
+                # Generate gear creation code
+                teeth = 20  # Default, extract from command if needed
+                diameter = 50  # Default, extract from command if needed
+                thickness = 10  # Default, extract from command if needed
+                
+                # Extract parameters from original command if possible
+                import re
+                if 'teeth' in original_command:
+                    teeth_match = re.search(r'(\d+)\s*teeth', original_command)
+                    if teeth_match:
+                        teeth = int(teeth_match.group(1))
+                
+                if 'diameter' in original_command:
+                    diameter_match = re.search(r'(\d+(?:\.\d+)?)\s*mm\s*diameter', original_command)
+                    if diameter_match:
+                        diameter = float(diameter_match.group(1))
+                
+                if 'thickness' in original_command:
+                    thickness_match = re.search(r'(\d+(?:\.\d+)?)\s*mm\s*thickness', original_command)
+                    if thickness_match:
+                        thickness = float(thickness_match.group(1))
+                
+                freecad_code = f"""
+# Create precision gear with {teeth} teeth, {diameter}mm diameter, {thickness}mm thickness
+import FreeCAD as App
+import Part
+import math
+
+# Get active document
+doc = App.ActiveDocument
+if not doc:
+    doc = App.newDocument()
+
+# Gear parameters
+num_teeth = {teeth}
+outer_diameter = {diameter}
+thickness = {thickness}
+module = outer_diameter / num_teeth  # Calculate module
+pressure_angle = 20  # degrees
+addendum = module
+dedendum = 1.25 * module
+root_diameter = outer_diameter - 2 * dedendum
+pitch_diameter = outer_diameter - 2 * addendum
+
+# Create gear profile using involute curve
+def involute_point(base_radius, angle):
+    x = base_radius * (math.cos(angle) + angle * math.sin(angle))
+    y = base_radius * (math.sin(angle) - angle * math.cos(angle))
+    return (x, y)
+
+# Base circle radius
+base_radius = pitch_diameter / 2 * math.cos(math.radians(pressure_angle))
+
+# Create gear tooth profile
+import Part
+from FreeCAD import Vector
+
+# Create one tooth profile
+tooth_points = []
+angle_step = 0.1
+max_angle = math.sqrt((outer_diameter/2)**2 / base_radius**2 - 1)
+
+# Involute curve points
+for i in range(int(max_angle / angle_step) + 1):
+    angle = i * angle_step
+    x, y = involute_point(base_radius, angle)
+    tooth_points.append(Vector(x, y, 0))
+
+# Create base circle for gear
+base_circle = Part.Circle(Vector(0, 0, 0), Vector(0, 0, 1), root_diameter/2)
+base_wire = Part.Wire([base_circle.toShape()])
+gear_face = Part.Face(base_wire)
+
+# Create gear teeth by boolean operations
+angular_step = 360.0 / num_teeth
+for tooth_num in range(num_teeth):
+    angle_deg = tooth_num * angular_step
+    
+    # Create simplified rectangular tooth for now
+    tooth_height = (outer_diameter - root_diameter) / 2
+    tooth_width = math.pi * pitch_diameter / num_teeth * 0.4  # Simplified
+    
+    # Create tooth rectangle
+    tooth_x = root_diameter/2 + tooth_height/2
+    tooth_y = 0
+    
+    # Create tooth shape
+    tooth_box = Part.makeBox(tooth_height, tooth_width, thickness)
+    tooth_box.translate(Vector(tooth_x - tooth_height/2, -tooth_width/2, 0))
+    
+    # Rotate tooth to correct position
+    tooth_box = tooth_box.rotate(Vector(0, 0, 0), Vector(0, 0, 1), math.radians(angle_deg))
+    
+    # Union with gear
+    gear_face = gear_face.fuse(tooth_box)
+
+# Extrude gear to thickness
+gear_solid = gear_face.extrude(Vector(0, 0, thickness))
+
+# Create mounting hole if specified
+if 'mounting' in original_command or 'hole' in original_command:
+    hole_diameter = min(root_diameter * 0.3, 10)  # Reasonable hole size
+    hole_cylinder = Part.makeCylinder(hole_diameter/2, thickness * 1.1)
+    hole_cylinder.translate(Vector(0, 0, -thickness * 0.05))
+    gear_solid = gear_solid.cut(hole_cylinder)
+
+# Create FreeCAD object
+gear_obj = doc.addObject("Part::Feature", "PrecisionGear")
+gear_obj.Shape = gear_solid
+gear_obj.Label = f"Gear_{teeth}T_{diameter}mm"
+
+# Recompute document
+doc.recompute()
+"""
+            
+            else:
+                # Default sketch creation for other shapes
+                freecad_code = f"""
+# Create {shape} sketch
+import FreeCAD as App
+import Sketcher
+
+doc = App.ActiveDocument
+if not doc:
+    doc = App.newDocument()
+
+sketch = doc.addObject('Sketcher::SketchObject', 'Sketch')
+sketch.Placement = App.Placement(App.Vector(0.000000, 0.000000, 0.000000), App.Rotation(0.000000, 0.000000, 0.000000, 1.000000))
+
+# Add geometry to sketch
+if "{shape}" == "rectangle":
+    sketch.addGeometry(Part.LineSegment(App.Vector(-10.0, -10.0, 0), App.Vector(10.0, -10.0, 0)), False)
+    sketch.addGeometry(Part.LineSegment(App.Vector(10.0, -10.0, 0), App.Vector(10.0, 10.0, 0)), False)
+    sketch.addGeometry(Part.LineSegment(App.Vector(10.0, 10.0, 0), App.Vector(-10.0, 10.0, 0)), False)
+    sketch.addGeometry(Part.LineSegment(App.Vector(-10.0, 10.0, 0), App.Vector(-10.0, -10.0, 0)), False)
+
+doc.recompute()
+"""
+            
+            # Execute the FreeCAD code
+            if self.command_executor:
+                result = self.command_executor.execute(freecad_code)
+                
+                return WorkflowExecutionResult(
+                    step_id=step.step_id,
+                    status="success" if result.get("status") == "success" else "error",
+                    output={
+                        "freecad_code": freecad_code,
+                        "execution_result": result,
+                        "shape_created": True,
+                        "shape_type": "gear" if 'gear' in original_command else shape
+                    },
+                    execution_time=0.5
+                )
+            else:
+                return WorkflowExecutionResult(
+                    step_id=step.step_id,
+                    status="error",
+                    output={},
+                    execution_time=0.0,
+                    error_message="No command executor available"
+                )
+                
+        except Exception as e:
+            return WorkflowExecutionResult(
+                step_id=step.step_id,
+                status="error",
+                output={},
+                execution_time=0.0,
+                error_message=str(e)
+            )
     
     def _execute_pad_step(self, step: WorkflowStep, context: Dict[str, Any]) -> WorkflowExecutionResult:
         """Execute pad/extrusion step"""

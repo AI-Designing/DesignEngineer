@@ -365,6 +365,53 @@ class QualityPredictor:
         
         confidences = [p.get('confidence', 0.5) for p in predictions]
         return sum(confidences) / len(confidences)
+    
+    def _geometric_quality_model(self, step: EnhancedGenerationStep, context: Dict[str, Any]) -> float:
+        """Model for geometric quality prediction"""
+        # Base quality on step complexity and type
+        base_quality = 0.8
+        
+        # Adjust for complexity
+        complexity_penalty = step.complexity_score / 10.0
+        base_quality *= (1.0 - complexity_penalty * 0.3)
+        
+        # Adjust for geometric operations
+        if 'sketch' in step.description.lower():
+            base_quality *= 0.9  # Sketches generally reliable
+        elif 'extrude' in step.description.lower() or 'pad' in step.description.lower():
+            base_quality *= 0.85  # Extrusions moderately reliable
+        elif 'fillet' in step.description.lower() or 'chamfer' in step.description.lower():
+            base_quality *= 0.8  # Feature operations more complex
+        
+        return max(0.1, min(1.0, base_quality))
+    
+    def _aesthetic_quality_model(self, step: EnhancedGenerationStep, context: Dict[str, Any]) -> float:
+        """Model for aesthetic quality prediction"""
+        # Base aesthetic quality
+        base_quality = 0.7
+        
+        # Adjust for aesthetic-related operations
+        if any(term in step.description.lower() for term in ['fillet', 'chamfer', 'smooth', 'round']):
+            base_quality *= 1.2  # Aesthetic operations improve quality
+        
+        return max(0.1, min(1.0, base_quality))
+    
+    def _performance_quality_model(self, step: EnhancedGenerationStep, context: Dict[str, Any]) -> float:
+        """Model for performance quality prediction"""
+        # Base performance quality
+        base_quality = 0.8
+        
+        # Adjust for execution time estimates
+        if step.estimated_duration > 30:  # Long operations
+            base_quality *= 0.9
+        elif step.estimated_duration > 60:  # Very long operations
+            base_quality *= 0.8
+        
+        # Adjust for dependency complexity
+        dependency_penalty = len(step.dependencies) * 0.05
+        base_quality *= (1.0 - dependency_penalty)
+        
+        return max(0.1, min(1.0, base_quality))
 
 class EnhancedComplexShapeGenerator:
     """
@@ -379,6 +426,9 @@ class EnhancedComplexShapeGenerator:
         self.command_executor = command_executor
         self.state_cache = state_cache
         self.websocket_manager = websocket_manager
+        
+        # Initialize logger first
+        self.logger = logging.getLogger(__name__)
         
         # Initialize DeepSeek R1 integration
         self.use_deepseek = use_deepseek
@@ -400,8 +450,6 @@ class EnhancedComplexShapeGenerator:
         
         # Initialize advanced prompt engineering system
         self.enhanced_llm = EnhancedLLMIntegration(llm_client)
-        
-        self.logger = logging.getLogger(__name__)
         
         # Enhanced AI components
         self.pattern_learning = PatternLearningEngine()
@@ -565,6 +613,28 @@ class EnhancedComplexShapeGenerator:
             'resource_estimate': resource_estimate,
             'challenges': challenges,
             'confidence': 0.8
+        }
+    
+    def _estimate_resources(self, complexity_score: float, entity_count: int) -> Dict[str, Any]:
+        """Estimate computational and time resources needed"""
+        
+        # Base estimates
+        base_memory_mb = 50  # Base memory requirement
+        base_time_seconds = 10  # Base execution time
+        
+        # Scale with complexity
+        memory_mb = base_memory_mb + (complexity_score * 20) + (entity_count * 5)
+        time_seconds = base_time_seconds + (complexity_score * 5) + (entity_count * 2)
+        
+        # CPU usage estimate (percentage)
+        cpu_usage = min(90, 20 + (complexity_score * 10))
+        
+        return {
+            'estimated_memory_mb': memory_mb,
+            'estimated_time_seconds': time_seconds,
+            'estimated_cpu_usage_percent': cpu_usage,
+            'recommended_timeout': max(60, time_seconds * 2),
+            'resource_level': 'low' if complexity_score < 3 else 'medium' if complexity_score < 7 else 'high'
         }
     
     def _extract_entities(self, requirements: str) -> List[Dict[str, Any]]:
