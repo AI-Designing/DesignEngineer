@@ -1,7 +1,9 @@
 import unittest
+
 from ai_designer.freecad.api_client import FreeCADAPIClient
 from ai_designer.freecad.command_executor import CommandExecutor
 from ai_designer.freecad.state_manager import StateManager
+
 
 class TestFreeCADAPIClient(unittest.TestCase):
     def setUp(self):
@@ -27,5 +29,6 @@ class TestFreeCADAPIClient(unittest.TestCase):
         updated_state = self.state_manager.get_state()
         self.assertNotEqual(initial_state, updated_state)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

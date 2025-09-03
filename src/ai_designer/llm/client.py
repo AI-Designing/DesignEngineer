@@ -1,9 +1,9 @@
-import os
 import logging
-from typing import Optional, Dict, Any
+import os
+from typing import Any, Dict, Optional
 
 # Import secure configuration
-from ..config import get_api_key, ConfigurationError
+from ..config import ConfigurationError, get_api_key
 
 # Google Gemini import
 try:
@@ -13,11 +13,17 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 class LLMClient:
-    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None, provider: str = "google"):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model_name: Optional[str] = None,
+        provider: str = "google",
+    ):
         """
         Initialize LLM client with secure API key handling.
-        
+
         Args:
             api_key: Optional API key (if not provided, loaded from secure config)
             model_name: Model name to use (defaults to gemini-1.5-flash)
@@ -25,24 +31,25 @@ class LLMClient:
         """
         self.provider = provider
         self.model_name = model_name or "gemini-1.5-flash"
-        
+
         # Securely get API key
         try:
             self.api_key = api_key or get_api_key()
         except ConfigurationError as e:
             logger.error(f"Failed to get API key: {e}")
             raise
-        
+
         if ChatGoogleGenerativeAI is None:
-            raise ImportError("Google Gemini provider not installed. Please install langchain-google-genai.")
-        
+            raise ImportError(
+                "Google Gemini provider not installed. Please install langchain-google-genai."
+            )
+
         logger.info("[LLMClient] Using Google Gemini for command generation.")
         logger.info(f"[LLMClient] Model: {self.model_name}")
-        
+
         # Initialize LLM with secure API key
         self.llm = ChatGoogleGenerativeAI(
-            google_api_key=self.api_key, 
-            model=self.model_name
+            google_api_key=self.api_key, model=self.model_name
         )
 
     def generate_command(self, nl_command, state=None):
@@ -50,11 +57,12 @@ class LLMClient:
         Use LLM to generate a FreeCAD Python command from a natural language command and (optionally) the current state.
         """
         print(f"[LLMClient] Provider: {self.provider}, Model: {self.model_name}")
-        
+
         try:
             # Convert state to JSON string if it's a dictionary
             if state is not None:
                 import json
+
                 try:
                     state_str = json.dumps(state, indent=2)
                 except (TypeError, ValueError) as json_error:
@@ -62,11 +70,15 @@ class LLMClient:
                     # Fallback to string representation
                     state_str = str(state)
             else:
-                state_str = 'N/A'
-            
+                state_str = "N/A"
+
             from langchain.prompts import ChatPromptTemplate
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", """You are an expert FreeCAD Python scripter. Given a user request and the current FreeCAD state, generate a single valid FreeCAD Python command or script that fulfills the request. IMPORTANT: Only output the Python code, no markdown formatting, no explanations, no code blocks, no backticks. The code should be ready to execute directly.
+
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        """You are an expert FreeCAD Python scripter. Given a user request and the current FreeCAD state, generate a single valid FreeCAD Python command or script that fulfills the request. IMPORTANT: Only output the Python code, no markdown formatting, no explanations, no code blocks, no backticks. The code should be ready to execute directly.
 
 BASIC PRIMITIVES:
 - Box: box = doc.addObject('Part::Box', 'Box'); box.Length = 10; box.Width = 10; box.Height = 10; doc.recompute()
@@ -113,33 +125,38 @@ Cylinder: Radius=5, Height=20
 Sphere: Radius=10
 Cone: Radius1=5, Radius2=10, Height=50, Angle=360
 Torus: Radius1=10, Radius2=2
-Gear: Radius=25, Height=10, Bore=5"""),
-                ("human", f"User request: {nl_command}\nCurrent state: {state_str}")
-            ])
+Gear: Radius=25, Height=10, Bore=5""",
+                    ),
+                    (
+                        "human",
+                        f"User request: {nl_command}\nCurrent state: {state_str}",
+                    ),
+                ]
+            )
             messages = prompt.format_messages()
             response = self.llm.invoke(messages)
-            
+
             # Clean the response content - handle different response types
-            if hasattr(response, 'content'):
+            if hasattr(response, "content"):
                 code = response.content.strip()
-            elif hasattr(response, 'text') and callable(getattr(response, 'text')):
+            elif hasattr(response, "text") and callable(getattr(response, "text")):
                 code = response.text().strip()
-            elif hasattr(response, 'text'):
+            elif hasattr(response, "text"):
                 code = response.text.strip()
             else:
                 code = str(response).strip()
-            
+
             # Remove markdown code blocks if present
-            if code.startswith('```python'):
+            if code.startswith("```python"):
                 code = code[9:]
-            elif code.startswith('```'):
+            elif code.startswith("```"):
                 code = code[3:]
-            
-            if code.endswith('```'):
+
+            if code.endswith("```"):
                 code = code[:-3]
-            
+
             code = code.strip()
-            
+
             # Print the generated code for verification
             print("[LLMClient] Generated code:\n", code)
             return code

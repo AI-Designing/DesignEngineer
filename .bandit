@@ -1,0 +1,13 @@
+skips:
+  - B110  # try_except_pass - acceptable for cleanup code
+  - B404  # subprocess import - required for FreeCAD execution
+  - B102  # exec_used - required for FreeCAD scripting
+  - B603  # subprocess calls - required for FreeCAD automation
+  - B607  # start_process_with_partial_path - acceptable for python3 calls
+  - B108  # hardcoded temp directory - acceptable for development
+  - B608  # possible SQL injection - false positive for f-strings
+
+exclude_dirs:
+  - tests
+  - docs
+  - outputs

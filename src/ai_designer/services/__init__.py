@@ -7,4 +7,4 @@ of the system to provide comprehensive functionality.
 
 from .state_service import FreeCADStateService
 
-__all__ = ['FreeCADStateService']
+__all__ = ["FreeCADStateService"]
