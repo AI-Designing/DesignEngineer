@@ -31,7 +31,7 @@ class DeepSeekConfig:
     """Configuration for DeepSeek R1 local instance"""
 
     host: str = "localhost"
-    port: int = 8000
+    port: int = 11434
     model_name: str = "deepseek-r1:14b"
     timeout: int = 300
     max_tokens: int = 8192
@@ -95,10 +95,22 @@ class DeepSeekR1Client:
     def _verify_connection(self):
         """Verify connection to DeepSeek R1 local server"""
         try:
-            response = self.session.get(f"{self.base_url}/api/version", timeout=10)
+            # For Ollama, use the tags endpoint to verify connection
+            response = self.session.get(f"{self.base_url}/api/tags", timeout=10)
             if response.status_code == 200:
-                logger.info("✅ DeepSeek R1 connection verified")
-                return True
+                data = response.json()
+                # Check if our model is available
+                models = [model["name"] for model in data.get("models", [])]
+                if self.config.model_name in models:
+                    logger.info(
+                        f"✅ DeepSeek R1 connection verified - model {self.config.model_name} found"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"⚠️ Model {self.config.model_name} not found. Available models: {models}"
+                    )
+                    return False
             else:
                 logger.warning(
                     f"⚠️ DeepSeek R1 health check failed: {response.status_code}"
