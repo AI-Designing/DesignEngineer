@@ -277,9 +277,33 @@ class QualityPredictor:
         return prediction
 
     def predict_overall_quality(
-        self, plan: List[EnhancedGenerationStep], execution_context: Dict[str, Any]
+        self,
+        plan: Union[List[EnhancedGenerationStep], Dict[str, Any]],
+        execution_context: Dict[str, Any],
     ) -> QualityMetrics:
         """Predict overall quality for the entire generation plan"""
+
+        # Handle different plan formats
+        if isinstance(plan, dict):
+            # Extract execution steps from enhanced plan
+            execution_steps = plan.get("execution_steps", [])
+            complexity_score = plan.get("complexity_score", 5.0)
+
+            # Create simple quality prediction based on plan structure
+            base_quality = max(0.1, 1.0 - (complexity_score / 10.0))
+            step_count_factor = max(0.1, 1.0 - (len(execution_steps) / 20.0))
+            predicted_quality = base_quality * step_count_factor
+
+            # Return QualityMetrics object
+            return QualityMetrics(
+                overall_score=predicted_quality,
+                geometric_accuracy=predicted_quality * 0.9,
+                design_consistency=predicted_quality * 0.95,
+                aesthetic_quality=predicted_quality * 0.8,
+                manufacturability=predicted_quality * 0.85,
+                performance_score=predicted_quality * 0.9,
+                confidence_level=0.7,
+            )
 
         step_predictions = [
             self.predict_step_quality(step, execution_context) for step in plan
@@ -708,6 +732,63 @@ class EnhancedComplexShapeGenerator:
             "confidence": 0.8,
         }
 
+    def _identify_challenges(
+        self,
+        requirements: str,
+        entities: List[Dict[str, Any]],
+        relationships: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Identify potential challenges in the design requirements"""
+        challenges = []
+
+        # Check for geometric complexity
+        if len(entities) > 5:
+            challenges.append(
+                {
+                    "type": "geometric_complexity",
+                    "severity": "medium",
+                    "description": f"Design involves {len(entities)} entities which may require careful coordination",
+                    "suggestion": "Consider breaking down into sub-assemblies",
+                }
+            )
+
+        # Check for precision requirements
+        precision_keywords = ["precise", "accurate", "tolerance", "fit", "clearance"]
+        if any(keyword in requirements.lower() for keyword in precision_keywords):
+            challenges.append(
+                {
+                    "type": "precision_requirements",
+                    "severity": "high",
+                    "description": "Design requires high precision which may affect manufacturability",
+                    "suggestion": "Define clear tolerances and consider manufacturing constraints",
+                }
+            )
+
+        # Check for complex relationships
+        if len(relationships) > len(entities):
+            challenges.append(
+                {
+                    "type": "complex_relationships",
+                    "severity": "medium",
+                    "description": "Multiple relationships between entities may complicate assembly",
+                    "suggestion": "Create detailed assembly sequence and constraints",
+                }
+            )
+
+        # Check for material considerations
+        material_keywords = ["steel", "aluminum", "plastic", "composite", "material"]
+        if any(keyword in requirements.lower() for keyword in material_keywords):
+            challenges.append(
+                {
+                    "type": "material_considerations",
+                    "severity": "low",
+                    "description": "Specific materials mentioned may affect design decisions",
+                    "suggestion": "Consider material properties in design validation",
+                }
+            )
+
+        return challenges
+
     def _estimate_resources(
         self, complexity_score: float, entity_count: int
     ) -> Dict[str, Any]:
@@ -861,6 +942,88 @@ class EnhancedComplexShapeGenerator:
             return GenerationMode.TEMPLATE_BASED
         else:
             return GenerationMode.ADAPTIVE
+
+    def _generate_enhanced_plan(
+        self, requirements: str, analysis: Dict[str, Any], patterns: List[Dict] = None
+    ) -> Dict[str, Any]:
+        """Generate an enhanced execution plan based on requirements and analysis"""
+
+        entities = analysis.get("entities", [])
+        relationships = analysis.get("relationships", [])
+        complexity_score = analysis.get("complexity_score", 3.0)
+        challenges = analysis.get("challenges", [])
+
+        # Create execution steps based on entities and relationships
+        execution_steps = []
+
+        # Step 1: Initialize document
+        execution_steps.append(
+            {
+                "step_id": 1,
+                "type": "initialization",
+                "description": "Initialize FreeCAD document and import modules",
+                "code_template": "doc = App.newDocument('{}')".format("GearAssembly"),
+                "estimated_time": 2,
+            }
+        )
+
+        # Step 2: Create primary entities
+        step_id = 2
+        for entity in entities:
+            execution_steps.append(
+                {
+                    "step_id": step_id,
+                    "type": "entity_creation",
+                    "description": f"Create {entity['name']} ({entity['type']})",
+                    "entity": entity,
+                    "estimated_time": entity["complexity"] * 2,
+                }
+            )
+            step_id += 1
+
+        # Step 3: Apply relationships
+        for relationship in relationships:
+            execution_steps.append(
+                {
+                    "step_id": step_id,
+                    "type": "relationship",
+                    "description": f"Apply {relationship['type']} relationship",
+                    "relationship": relationship,
+                    "estimated_time": relationship["complexity"] * 3,
+                }
+            )
+            step_id += 1
+
+        # Step 4: Finalization
+        execution_steps.append(
+            {
+                "step_id": step_id,
+                "type": "finalization",
+                "description": "Finalize document and recompute",
+                "code_template": "doc.recompute()",
+                "estimated_time": 1,
+            }
+        )
+
+        # Create enhanced plan
+        enhanced_plan = {
+            "requirements": requirements,
+            "analysis": analysis,
+            "execution_steps": execution_steps,
+            "estimated_total_time": sum(
+                step.get("estimated_time", 2) for step in execution_steps
+            ),
+            "complexity_score": complexity_score,
+            "challenges": challenges,
+            "patterns_used": len(patterns) if patterns else 0,
+            "optimization_suggestions": [
+                "Use parametric modeling for flexibility",
+                "Consider manufacturing constraints",
+                "Validate geometric relationships",
+            ],
+        }
+
+        return enhanced_plan
 
     def _send_generation_complete(self, session_id: str, result: GenerationResult):
         """Send generation completion notification via WebSocket"""
@@ -1026,7 +1189,7 @@ class EnhancedComplexShapeGenerator:
         # Prepare enhanced context for DeepSeek
         deepseek_context = {
             "session_id": session_context.get("session_id"),
-            "generation_mode": session_context.get("mode", "adaptive"),
+            "generation_mode": str(session_context.get("mode", "adaptive")),
             "quality_targets": session_context.get("quality_targets", {}),
             "freecad_state": session_context.get("context", {}),
             "complexity_analysis": complexity_analysis,

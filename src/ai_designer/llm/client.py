@@ -163,3 +163,41 @@ Gear: Radius=25, Height=10, Bore=5""",
         except Exception as e:
             print(f"[LLMClient] Error generating command: {e}")
             raise
+
+    def generate_response(self, prompt: str, context: Optional[str] = None) -> str:
+        """
+        Generate a response using the LLM for general text generation.
+
+        Args:
+            prompt: The text prompt to generate a response for
+            context: Optional context to include in the prompt
+
+        Returns:
+            Generated text response
+        """
+        try:
+            from langchain.prompts import ChatPromptTemplate
+
+            if context:
+                full_prompt = f"Context: {context}\n\nPrompt: {prompt}"
+            else:
+                full_prompt = prompt
+
+            prompt_template = ChatPromptTemplate.from_messages([("human", full_prompt)])
+
+            messages = prompt_template.format_messages()
+            response = self.llm.invoke(messages)
+
+            # Extract content from response
+            if hasattr(response, "content"):
+                return response.content.strip()
+            elif hasattr(response, "text") and callable(getattr(response, "text")):
+                return response.text().strip()
+            elif hasattr(response, "text"):
+                return response.text.strip()
+            else:
+                return str(response).strip()
+
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
+            raise

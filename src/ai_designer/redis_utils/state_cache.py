@@ -278,3 +278,13 @@ class StateCache:
     def update_state(self, state_data: Dict[str, Any], state_key: str = None) -> str:
         """Update state data in Redis (alias for cache_state)"""
         return self.cache_state(state_data, state_key)
+
+    def store_state(
+        self, state_key: str, state_data: Dict[str, Any], expiration: int = None
+    ) -> bool:
+        """Store state data in Redis (alias for cache_state)"""
+        try:
+            self.cache_state(state_data, state_key, expiration=expiration)
+            return True
+        except Exception:
+            return False

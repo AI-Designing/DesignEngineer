@@ -236,10 +236,36 @@ ADVANCED TECHNIQUES TO CONSIDER:
             )
 
         if context:
-            base_prompt += f"\n\nCONTEXT:\n{json.dumps(context, indent=2)}"
+            try:
+                # Convert any enum values to strings for JSON serialization
+                serializable_context = {}
+                for key, value in context.items():
+                    if hasattr(value, "__dict__"):
+                        serializable_context[key] = str(value)
+                    elif isinstance(value, Enum):
+                        serializable_context[key] = value.value
+                    else:
+                        serializable_context[key] = value
+                base_prompt += (
+                    f"\n\nCONTEXT:\n{json.dumps(serializable_context, indent=2)}"
+                )
+            except (TypeError, ValueError) as e:
+                base_prompt += f"\n\nCONTEXT:\n{str(context)}"
 
         if constraints:
-            base_prompt += f"\n\nCONSTRAINTS:\n{json.dumps(constraints, indent=2)}"
+            try:
+                # Convert any enum values to strings for JSON serialization
+                serializable_constraints = {}
+                for key, value in constraints.items():
+                    if hasattr(value, "__dict__"):
+                        serializable_constraints[key] = str(value)
+                    elif isinstance(value, Enum):
+                        serializable_constraints[key] = value.value
+                    else:
+                        serializable_constraints[key] = value
+                base_prompt += f"\n\nCONSTRAINTS:\n{json.dumps(serializable_constraints, indent=2)}"
+            except (TypeError, ValueError) as e:
+                base_prompt += f"\n\nCONSTRAINTS:\n{str(constraints)}"
 
         base_prompt += """
 
