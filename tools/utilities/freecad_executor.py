@@ -8,6 +8,7 @@ import glob
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -133,18 +134,18 @@ except Exception as e:
                 f.write(enhanced_code)
 
             # Execute with FreeCAD
-            freecad_cmd = f"freecad --console --run-python {enhanced_file}"
-            logger.info(f"🚀 Running: {freecad_cmd}")
+            freecad_cmd = ["freecad", "--console", "--run-python", str(enhanced_file)]
+            logger.info(f"🚀 Running: {' '.join(freecad_cmd)}")
 
-            result = os.system(freecad_cmd)
+            result = subprocess.run(freecad_cmd, capture_output=True, text=True)
 
-            if result == 0:
+            if result.returncode == 0:
                 logger.info(f"✅ FreeCAD execution successful: {code_file.name}")
                 self.executed_files.add(code_file)
                 return True
             else:
                 logger.error(
-                    f"❌ FreeCAD execution failed: {code_file.name} (exit code: {result})"
+                    f"❌ FreeCAD execution failed: {code_file.name} (exit code: {result.returncode})"
                 )
                 return False
 

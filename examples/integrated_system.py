@@ -8,6 +8,7 @@ import argparse
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -238,9 +239,9 @@ class IntegratedGenerationSystem:
                 state_cache=self.state_cache,
                 websocket_manager=self.websocket_manager,
                 use_deepseek=True if self.deepseek_client else False,
-                deepseek_config=self.deepseek_client.config
-                if self.deepseek_client
-                else None,
+                deepseek_config=(
+                    self.deepseek_client.config if self.deepseek_client else None
+                ),
             )
 
             # Initialize integration manager if DeepSeek is available
@@ -279,9 +280,9 @@ class IntegratedGenerationSystem:
                     mode=DeepSeekMode.FAST,
                 )
                 health_status["components"]["deepseek"] = {
-                    "status": "healthy"
-                    if test_response.status == "success"
-                    else "degraded",
+                    "status": (
+                        "healthy" if test_response.status == "success" else "degraded"
+                    ),
                     "confidence": test_response.confidence_score,
                     "response_time": test_response.execution_time,
                 }
@@ -400,9 +401,11 @@ class IntegratedGenerationSystem:
                 component_result.update(
                     {
                         "confidence_score": result.confidence_score,
-                        "reasoning_steps": len(result.reasoning_chain)
-                        if hasattr(result, "reasoning_chain")
-                        else 0,
+                        "reasoning_steps": (
+                            len(result.reasoning_chain)
+                            if hasattr(result, "reasoning_chain")
+                            else 0
+                        ),
                         "complexity_analysis": getattr(
                             result, "complexity_analysis", {}
                         ),
@@ -550,16 +553,18 @@ except Exception as e:
                 f.write(enhanced_code)
 
             # Execute with FreeCAD
-            cmd = f"freecad --console --run-python {temp_script}"
-            result = os.system(cmd)
+            import subprocess
+
+            cmd = ["freecad", "--console", "--run-python", str(temp_script)]
+            result = subprocess.run(cmd, capture_output=True, text=True)
 
             # Clean up
             if temp_script.exists():
                 temp_script.unlink()
 
             return {
-                "status": "success" if result == 0 else "failed",
-                "exit_code": result,
+                "status": "success" if result.returncode == 0 else "failed",
+                "exit_code": result.returncode,
                 "method": "direct_freecad",
                 "timestamp": datetime.now().isoformat(),
             }

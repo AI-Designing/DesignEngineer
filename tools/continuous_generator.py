@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -253,13 +254,14 @@ class ContinuousComponentGenerator:
             },
         }
 
-        import random
+        import secrets
 
         if (
             category in requirements_templates
             and complexity in requirements_templates[category]
         ):
-            return random.choice(requirements_templates[category][complexity])
+            options = requirements_templates[category][complexity]
+            return options[secrets.randbelow(len(options))]
         else:
             return f"Create a {complexity} {category.replace('_', ' ')} component with appropriate features"
 
@@ -317,12 +319,15 @@ class ContinuousComponentGenerator:
                 f.write(code)
 
             # Execute with FreeCAD (you can modify this based on your FreeCAD setup)
-            result = os.system(f"freecad --console --run-python {temp_file}")
+            import subprocess
+
+            cmd = ["freecad", "--console", "--run-python", temp_file]
+            result = subprocess.run(cmd, capture_output=True, text=True)
 
             # Clean up temp file
             os.remove(temp_file)
 
-            if result == 0:
+            if result.returncode == 0:
                 logger.info(
                     f"✅ FreeCAD execution successful for generation {generation_id}"
                 )
@@ -367,10 +372,14 @@ class ContinuousComponentGenerator:
                 logger.info(f"{'='*60}")
 
                 # Select random category and complexity
-                import random
+                import secrets
 
-                category = random.choice(self.component_categories)
-                complexity = random.choice(self.complexity_levels)
+                category = self.component_categories[
+                    secrets.randbelow(len(self.component_categories))
+                ]
+                complexity = self.complexity_levels[
+                    secrets.randbelow(len(self.complexity_levels))
+                ]
 
                 # Generate requirements
                 requirements = self.generate_component_requirements(

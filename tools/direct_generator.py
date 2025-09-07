@@ -7,6 +7,7 @@ Generate complex mechanical components directly using DeepSeek R1
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -176,16 +177,16 @@ except Exception as e:
         f.write(enhanced_script)
 
     # Execute with FreeCAD
-    cmd = f"freecad --console --run-python {enhanced_file}"
-    logger.info(f"🚀 Running: {cmd}")
+    cmd = ["freecad", "--console", "--run-python", str(enhanced_file)]
+    logger.info(f"🚀 Running: {' '.join(cmd)}")
 
-    result = os.system(cmd)
+    result = subprocess.run(cmd, capture_output=True, text=True)
 
-    if result == 0:
+    if result.returncode == 0:
         logger.info(f"✅ FreeCAD execution successful")
         return True
     else:
-        logger.error(f"❌ FreeCAD execution failed (exit code: {result})")
+        logger.error(f"❌ FreeCAD execution failed (exit code: {result.returncode})")
         return False
 
 

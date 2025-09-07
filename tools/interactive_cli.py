@@ -7,6 +7,7 @@ Generate complex mechanical components interactively using DeepSeek R1
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -215,15 +216,15 @@ except Exception as e:
             f.write(enhanced_script)
 
         # Execute
-        cmd = f"freecad --console --run-python {enhanced_file}"
-        print(f"🚀 Running: {cmd}")
+        cmd = ["freecad", "--console", "--run-python", str(enhanced_file)]
+        print(f"🚀 Running: {' '.join(cmd)}")
 
-        result = os.system(cmd)
+        result = subprocess.run(cmd, capture_output=True, text=True)
 
-        if result == 0:
+        if result.returncode == 0:
             print(f"✅ FreeCAD execution successful")
         else:
-            print(f"❌ FreeCAD execution failed (exit code: {result})")
+            print(f"❌ FreeCAD execution failed (exit code: {result.returncode})")
 
     def _indent_code(self, code: str, spaces: int = 4) -> str:
         """Indent code for script embedding"""
