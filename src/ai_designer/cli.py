@@ -18,6 +18,12 @@ try:
         DeepSeekMode,
         DeepSeekR1Client,
     )
+    from .llm.unified_manager import (
+        GenerationMode,
+        LLMProvider,
+        LLMRequest,
+        UnifiedLLMManager,
+    )
     from .realtime.websocket_manager import ProgressTracker, WebSocketManager
     from .redis_utils.client import RedisClient
     from .redis_utils.state_cache import StateCache
@@ -41,6 +47,12 @@ except ImportError:
         DeepSeekMode,
         DeepSeekR1Client,
     )
+    from ai_designer.llm.unified_manager import (
+        GenerationMode,
+        LLMProvider,
+        LLMRequest,
+        UnifiedLLMManager,
+    )
     from ai_designer.realtime.websocket_manager import ProgressTracker, WebSocketManager
     from ai_designer.redis_utils.client import RedisClient
     from ai_designer.redis_utils.state_cache import StateCache
@@ -50,7 +62,7 @@ class FreeCADCLI:
     def __init__(
         self,
         use_headless=True,
-        llm_provider="openai",
+        llm_provider="auto",
         llm_api_key=None,
         auto_open_gui=True,
         enable_websocket=True,
@@ -67,7 +79,10 @@ class FreeCADCLI:
         self.llm_api_key = llm_api_key
         self.auto_open_gui = auto_open_gui
 
-        # DeepSeek R1 configuration
+        # Unified LLM Manager configuration
+        self.unified_llm_manager = None
+
+        # Legacy DeepSeek configuration (for backward compatibility)
         self.deepseek_enabled = deepseek_enabled
         self.deepseek_mode = deepseek_mode
         self.deepseek_port = deepseek_port
@@ -115,11 +130,47 @@ class FreeCADCLI:
         """Initialize FreeCAD connection and command executor"""
         print("Initializing FreeCAD CLI...")
 
-        # Initialize DeepSeek R1 if enabled
+        # Initialize Unified LLM Manager
+        print("🧠 Initializing Unified LLM Manager...")
+        try:
+            llm_config = {
+                "google_api_key": self.llm_api_key or os.getenv("GOOGLE_API_KEY"),
+                "deepseek_host": "localhost",
+                "deepseek_port": self.deepseek_port,
+                "deepseek_model": "deepseek-r1:14b",
+                "deepseek_timeout": 300,
+                "gemini_model": "gemini-1.5-flash",
+            }
+
+            self.unified_llm_manager = UnifiedLLMManager(config=llm_config)
+
+            # Set active provider based on CLI options
+            if self.deepseek_enabled:
+                self.unified_llm_manager.set_active_provider(LLMProvider.DEEPSEEK_R1)
+            elif self.llm_provider == "google":
+                self.unified_llm_manager.set_active_provider(LLMProvider.GOOGLE_GEMINI)
+            else:
+                self.unified_llm_manager.set_active_provider(LLMProvider.AUTO)
+
+            print("✅ Unified LLM Manager ready")
+
+            # Show provider status
+            status = self.unified_llm_manager.get_provider_status()
+            for provider, info in status["providers"].items():
+                status_icon = "✅" if info["available"] else "❌"
+                print(
+                    f"   {status_icon} {provider}: {'Available' if info['available'] else 'Unavailable'}"
+                )
+
+        except Exception as e:
+            print(f"⚠️  Unified LLM Manager initialization failed: {e}")
+            self.unified_llm_manager = None
+
+        # Initialize legacy DeepSeek R1 if enabled (for backward compatibility)
         if self.deepseek_enabled:
             try:
                 print(
-                    f"🧠 Initializing DeepSeek R1 client on port {self.deepseek_port}..."
+                    f"🧠 Initializing legacy DeepSeek R1 client on port {self.deepseek_port}..."
                 )
                 from ai_designer.llm.deepseek_client import DeepSeekConfig
 
@@ -127,10 +178,10 @@ class FreeCADCLI:
                     host="localhost", port=self.deepseek_port, timeout=300
                 )
                 self.deepseek_client = DeepSeekR1Client(config=config)
-                print("✅ DeepSeek R1 client ready")
+                print("✅ Legacy DeepSeek R1 client ready")
             except Exception as e:
-                print(f"⚠️  DeepSeek R1 initialization failed: {e}")
-                print("Continuing with standard LLM providers...")
+                print(f"⚠️  Legacy DeepSeek R1 initialization failed: {e}")
+                print("Continuing with unified LLM manager...")
                 self.deepseek_enabled = False
 
         # Start WebSocket server if enabled
@@ -246,6 +297,27 @@ class FreeCADCLI:
 
                 elif user_input.lower() == "state":
                     self.show_state()
+
+                elif user_input.lower() in ["llm-status", "llm", "providers"]:
+                    self.show_llm_status()
+
+                elif user_input.startswith("switch-provider ") or user_input.startswith(
+                    "provider "
+                ):
+                    # Switch LLM provider
+                    provider = user_input.split(" ", 1)[1].strip()
+                    self.switch_llm_provider(provider)
+
+                elif user_input.startswith("unified "):
+                    # Execute command with unified LLM manager
+                    command = user_input[8:].strip()
+                    if " --mode " in command:
+                        parts = command.split(" --mode ")
+                        command = parts[0].strip()
+                        mode = parts[1].strip()
+                        self.execute_unified_command(command, mode)
+                    else:
+                        self.execute_unified_command(command)
 
                 elif user_input.lower() == "analyze":
                     self.analyze_state()
@@ -850,33 +922,46 @@ class FreeCADCLI:
     def show_help(self):
         """Show help information"""
         help_text = """
-🚀 Phase 2 & 3 Enhanced FreeCAD CLI - Advanced Workflow System with DeepSeek R1
+🚀 Enhanced FreeCAD CLI - Unified LLM System with Auto-Provider Selection
 
-Available Commands:
-  🧠 DeepSeek R1 Complex Part Generation:
-    - deepseek create detailed gear with 20 teeth    Use DeepSeek R1 reasoning for complex parts
-    - deepseek design bracket with mounting holes    Advanced AI-driven part generation
-    - deepseek build mechanical assembly             Multi-component system design
+🧠 LLM Provider Management:
+  llm-status                               Show current LLM provider status and metrics
+  providers                                Alias for llm-status
+  switch-provider deepseek                 Switch to DeepSeek R1 (local, complex reasoning)
+  switch-provider google                   Switch to Google Gemini (fast, API-based)
+  switch-provider auto                     Enable auto-selection (recommended)
+  provider deepseek                        Alias for switch-provider
 
-    Auto-Detection (when --deepseek-enabled):
-    - create gear with 20 teeth and hub              Auto-detected as complex → uses DeepSeek R1
-    - design detailed bracket assembly               Auto-detected as complex → uses DeepSeek R1
-    - build complex housing with features            Auto-detected as complex → uses DeepSeek R1
+🎯 Unified Command Execution:
+  unified create complex gear              Use unified LLM manager (auto-selects best provider)
+  unified create simple box --mode fast   Force fast mode with best provider
+  unified design bracket --mode complex   Force complex mode (likely uses DeepSeek)
+  unified build assembly --mode creative  Use creative mode for innovative solutions
 
-  🎯 Smart Natural Language Processing:
-    - create box 10x20x30                    Create a box with dimensions
-    - create cylinder radius 5               Create a cylinder
-    - create sphere radius 10                Create a sphere
-    - add hole on top face                   Phase 2: Intelligent face selection
-    - create bracket with mounting holes     Phase 3: Complex multi-step workflow
-    - design gear with hub and fillets       Phase 3: Advanced feature generation
-    - build assembly with multiple parts     Phase 3: Complex assembly workflow
+🧠 Legacy DeepSeek R1 Complex Part Generation:
+  deepseek create detailed gear with 20 teeth    Direct DeepSeek R1 reasoning
+  deepseek design bracket with mounting holes    Advanced AI-driven part generation
+  deepseek build mechanical assembly             Multi-component system design
 
-  🔧 REAL EXECUTION vs SIMULATION:
-    - create gear --real                     REAL: Actually creates FreeCAD objects
-    - create gear                            SIMULATION: Shows workflow analysis only
-    - create box 10x20x30 --real             REAL: Creates actual box in FreeCAD
-    - create complex assembly --real         REAL: Executes all steps in FreeCAD
+🎯 Smart Natural Language Processing:
+  create box 10x20x30                    Create a box with dimensions
+  create cylinder radius 5               Create a cylinder
+  create sphere radius 10                Create a sphere
+  add hole on top face                   Phase 2: Intelligent face selection
+  create bracket with mounting holes     Phase 3: Complex multi-step workflow
+  design gear with hub and fillets       Phase 3: Advanced feature generation
+  build assembly with multiple parts     Phase 3: Complex assembly workflow
+
+🔧 REAL EXECUTION vs SIMULATION:
+  create gear --real                     REAL: Actually creates FreeCAD objects
+  create gear                            SIMULATION: Shows workflow analysis only
+  unified create complex housing --real  REAL: Uses best provider and executes
+
+💡 Provider Auto-Selection Logic:
+  Simple commands (box, sphere, cylinder) → Google Gemini (fast)
+  Complex commands (gear, assembly, analysis) → DeepSeek R1 (reasoning)
+  Creative requests → DeepSeek R1 creative mode
+  Technical precision → DeepSeek R1 technical mode
 
   🌐 REAL-TIME FEATURES:
     - websocket / ws                         Show WebSocket server status
@@ -1226,118 +1311,176 @@ Available Commands:
                 print("❌ Failed to restart persistent GUI")
         else:
             print("❌ Persistent GUI is not available")
-        """Show examples of Phase 2 & 3 enhanced commands"""
-        examples = """
-🚀 Phase 2 & 3 Enhanced Command Examples:
 
-🎯 Phase 2 - Intelligent Face Selection & Operations:
+    def switch_llm_provider(self, provider_name: str) -> bool:
+        """Switch the active LLM provider"""
+        if not self.unified_llm_manager:
+            print("❌ Unified LLM Manager not initialized")
+            return False
 
-  Basic Face Operations:
-    add 10mm hole on the top face
-    create 5mm deep pocket on flat surface
-    drill 6mm hole in the center
-    make rectangular slot on side face
-    add chamfer to sharp edges
+        provider_mapping = {
+            "auto": LLMProvider.AUTO,
+            "deepseek": LLMProvider.DEEPSEEK_R1,
+            "google": LLMProvider.GOOGLE_GEMINI,
+            "openai": LLMProvider.OPENAI,
+        }
 
-  Advanced Face Operations:
-    create 4 mounting holes in square pattern
-    add threaded holes with M6 specification
-    make keyway slot on cylindrical surface
-    create counterbore holes for cap screws
-    drill angled holes at 45 degrees
+        provider = provider_mapping.get(provider_name.lower())
+        if not provider:
+            print(f"❌ Unknown provider: {provider_name}")
+            return False
 
-  Multi-Face Operations:
-    add holes on all flat faces
-    create pockets on top and bottom
-    drill holes on cylindrical surfaces
-    make slots on parallel faces
+        success = self.unified_llm_manager.set_active_provider(provider)
+        if success:
+            print(f"✅ Switched to LLM provider: {provider_name}")
+            if provider_name == "auto":
+                print(
+                    "🤖 System will automatically select the best provider for each request"
+                )
+        else:
+            print(f"❌ Failed to switch to provider: {provider_name}")
 
-🏗️ Phase 3 - Complex Multi-Step Workflows:
+        return success
 
-  Mechanical Components:
-    create a bracket with 4 mounting holes and fillets
-    design a gear with 20 teeth and central hub
-    build a bearing housing with mounting features
-    make a shaft collar with set screws
-    create a pulley with keyway and hub
+    def show_llm_status(self):
+        """Show current LLM provider status and performance metrics"""
+        if not self.unified_llm_manager:
+            print("❌ Unified LLM Manager not initialized")
+            return
 
-  Assembly Workflows:
-    design a gear box housing with cover and mounting
-    build a motor mount with vibration damping
-    create a valve body with inlet and outlet ports
-    make a pump housing with impeller chamber
-    design a bearing block with lubrication fittings
+        print("\n🧠 LLM Provider Status")
+        print("=" * 50)
 
-  Architectural Elements:
-    create a column with base and capital
-    build a staircase with railings and supports
-    design a truss structure with multiple joints
-    make a roof frame with rafters and beams
-    create a foundation with anchor bolts
+        status = self.unified_llm_manager.get_provider_status()
+        print(f"Active Provider: {status['active_provider']}")
+        print("\nAvailable Providers:")
 
-  Pattern & Feature Operations:
-    create linear pattern of holes along edge
-    make circular pattern of mounting features
-    add matrix pattern of ventilation holes
-    create helical pattern around cylinder
-    make variable spacing pattern with fillets
+        for provider, info in status["providers"].items():
+            status_icon = "✅" if info["available"] else "❌"
+            type_info = f"({info['type']})" if info.get("type") else ""
+            print(f"  {status_icon} {provider} {type_info}")
+            if not info["available"] and info.get("error"):
+                print(f"      Error: {info['error']}")
 
-✏️ Phase 1 Enhanced - Sketch-Then-Operate:
+        # Show performance summary
+        performance = self.unified_llm_manager.get_performance_summary()
+        if performance["total_generations"] > 0:
+            print(
+                f"\nPerformance Summary (last {performance['total_generations']} generations):"
+            )
+            for provider, usage in performance["provider_usage"].items():
+                if usage > 0:
+                    success_rate = performance["success_rates"][provider] * 100
+                    avg_time = performance["average_times"][provider]
+                    print(
+                        f"  {provider}: {usage} requests, {success_rate:.1f}% success, {avg_time:.1f}s avg"
+                    )
 
-  Parametric Sketching:
-    create 50mm diameter cylinder 100mm tall
-    make rectangular base 100x50x10mm with fillets
-    design L-shaped bracket with specific dimensions
-    create hexagonal prism with 25mm sides
-    make tapered cylinder with 20mm to 10mm diameter
+    def execute_unified_command(self, command: str, mode: str = "standard"):
+        """Execute command using the unified LLM manager"""
+        if not self.unified_llm_manager:
+            print(
+                "❌ Unified LLM Manager not initialized, falling back to legacy execution"
+            )
+            return self.execute_command(command)
 
-🔄 Workflow Strategy Examples:
+        print(f"🧠 Processing with Unified LLM Manager: {command}")
 
-  Command: "create box"
-  → Strategy: Simple (direct execution)
+        # Map string mode to enum
+        mode_mapping = {
+            "fast": GenerationMode.FAST,
+            "standard": GenerationMode.STANDARD,
+            "complex": GenerationMode.COMPLEX,
+            "creative": GenerationMode.CREATIVE,
+            "technical": GenerationMode.TECHNICAL,
+        }
 
-  Command: "create 50mm cylinder with 10mm hole"
-  → Strategy: Sketch-then-operate (Phase 1)
+        generation_mode = mode_mapping.get(mode.lower(), GenerationMode.STANDARD)
 
-  Command: "add hole on top face"
-  → Strategy: Face selection (Phase 2)
+        # Get current FreeCAD state
+        current_state = None
+        if self.state_analyzer:
+            try:
+                current_state = self.state_analyzer.get_current_state()
+            except Exception as e:
+                print(f"⚠️ Could not get current state: {e}")
 
-  Command: "create bracket with mounting holes and fillets"
-  → Strategy: Complex workflow (Phase 3)
+        # Create LLM request
+        request = LLMRequest(
+            command=command,
+            state=current_state,
+            mode=generation_mode,
+            context={"session_id": getattr(self, "session_id", "cli_session")},
+        )
 
-💡 Pro Tips for Advanced Workflows:
+        # Generate response
+        try:
+            start_time = time.time()
+            response = self.unified_llm_manager.generate_command(request)
 
-  🎯 For Face Operations:
-    - Mention face location: "top", "side", "flat", "cylindrical"
-    - Specify operation: "hole", "pocket", "slot", "chamfer"
-    - Include dimensions: "10mm diameter", "5mm deep"
+            if response.status == "success":
+                print(f"✅ Code generation successful!")
+                print(f"   Provider: {response.provider.value}")
+                print(f"   Confidence: {response.confidence_score:.2f}")
+                print(f"   Generation time: {response.execution_time:.1f}s")
 
-  🏗️ For Complex Workflows:
-    - Use descriptive terms: "bracket", "housing", "assembly"
-    - Mention multiple features: "holes and fillets"
-    - Specify patterns: "4 holes in square pattern"
-    - Include mounting: "mounting features", "bolt holes"
+                if response.reasoning_chain:
+                    print(f"   Reasoning steps: {len(response.reasoning_chain)}")
 
-  ⚡ System Intelligence:
-    - Commands are automatically analyzed for complexity
-    - Optimal workflow strategy is selected automatically
-    - Multi-step operations are decomposed intelligently
-    - Face selection happens automatically when needed
-    - Pattern operations are recognized and executed
-    - Feature operations (fillets, chamfers) are applied automatically
+                # Show generated code (truncated)
+                code_preview = (
+                    response.generated_code[:300] + "..."
+                    if len(response.generated_code) > 300
+                    else response.generated_code
+                )
+                print(f"\n📝 Generated Code:\n{code_preview}")
 
-🔧 Example Workflow Progressions:
+                # Execute the generated code
+                if self.api_client and response.generated_code:
+                    try:
+                        print("\n🔧 Executing in FreeCAD...")
+                        result = self.api_client.execute_command(
+                            response.generated_code
+                        )
 
-  Simple → Complex:
-    1. "create cylinder" (Phase 1)
-    2. "add hole on top" (Phase 2)
-    3. "add 4 mounting holes in pattern" (Phase 2 + Pattern)
-    4. "create bracket with multiple holes and fillets" (Phase 3)
+                        if result.get("status") == "success":
+                            print("✅ Code executed successfully!")
 
-  The system learns your intent and applies the most sophisticated
-  workflow automatically for optimal results!
-"""
-        print(examples)
+                            # Trigger GUI update if available
+                            if self.persistent_gui and self.enable_persistent_gui:
+                                self.persistent_gui.send_update_signal()
+
+                        else:
+                            print(
+                                f"⚠️ Execution completed with issues: {result.get('message', 'Unknown error')}"
+                            )
+
+                    except Exception as e:
+                        print(f"❌ Execution failed: {e}")
+                        print(
+                            "💡 You can manually copy and paste the generated code into FreeCAD"
+                        )
+
+                # Show optimization suggestions if available
+                if response.optimization_suggestions:
+                    print(f"\n💡 Optimization Suggestions:")
+                    for suggestion in response.optimization_suggestions[
+                        :3
+                    ]:  # Show top 3
+                        print(f"   • {suggestion}")
+
+            else:
+                print(f"❌ Code generation failed: {response.error_message}")
+                print(
+                    "🔄 You may want to try a different provider or rephrase your request"
+                )
+
+        except Exception as e:
+            print(f"❌ Unified command execution failed: {e}")
+            print("🔄 Falling back to legacy execution method...")
+            return self.execute_command(command)
+
+    # ...existing code...
 
 
 def main():
@@ -1357,11 +1500,22 @@ def main():
     )
     parser.add_argument(
         "--llm-provider",
-        choices=["openai", "google"],
-        default="openai",
-        help="LLM provider to use (openai or google)",
+        choices=["auto", "deepseek", "google", "openai"],
+        default="auto",
+        help="LLM provider to use (auto=smart selection, deepseek=DeepSeek R1, google=Gemini, openai=OpenAI)",
     )
     parser.add_argument("--llm-api-key", help="API key for the selected LLM provider")
+    parser.add_argument(
+        "--llm-mode",
+        choices=["fast", "standard", "complex", "creative", "technical"],
+        default="standard",
+        help="Generation mode for LLM (affects quality vs speed trade-off)",
+    )
+    parser.add_argument(
+        "--switch-provider",
+        choices=["auto", "deepseek", "google", "openai"],
+        help="Switch to a different LLM provider during interactive mode",
+    )
     parser.add_argument(
         "--no-websocket",
         action="store_true",
@@ -1404,10 +1558,17 @@ def main():
         llm_api_key=args.llm_api_key,
         enable_websocket=not args.no_websocket,
         enable_persistent_gui=not args.no_persistent_gui,
-        deepseek_enabled=args.deepseek_enabled,
+        deepseek_enabled=args.deepseek_enabled or args.llm_provider == "deepseek",
         deepseek_mode=args.deepseek_mode,
         deepseek_port=args.deepseek_port,
     )
+
+    # Handle provider switching if specified
+    if hasattr(args, "switch_provider") and args.switch_provider:
+        if cli.initialize():
+            cli.switch_llm_provider(args.switch_provider)
+            print(f"Provider switched to: {args.switch_provider}")
+        return
 
     if args.analyze:
         # Analysis mode
@@ -1420,8 +1581,14 @@ def main():
     elif args.command:
         # Single command mode
         if cli.initialize():
-            # Check if DeepSeek should be used for this command
-            if cli.deepseek_enabled and any(
+            # Determine execution mode based on CLI arguments
+            mode = getattr(args, "llm_mode", "standard")
+
+            # Use unified manager if available, otherwise fall back to legacy
+            if cli.unified_llm_manager:
+                print(f"🧠 Executing with Unified LLM Manager: {args.command}")
+                cli.execute_unified_command(args.command, mode)
+            elif cli.deepseek_enabled and any(
                 keyword in args.command.lower()
                 for keyword in [
                     "gear",
