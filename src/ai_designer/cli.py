@@ -124,7 +124,7 @@ class FreeCADCLI:
                 from ai_designer.llm.deepseek_client import DeepSeekConfig
 
                 config = DeepSeekConfig(
-                    host="localhost", port=self.deepseek_port, timeout=120
+                    host="localhost", port=self.deepseek_port, timeout=300
                 )
                 self.deepseek_client = DeepSeekR1Client(config=config)
                 print("✅ DeepSeek R1 client ready")
@@ -179,7 +179,7 @@ class FreeCADCLI:
                     from ai_designer.llm.deepseek_client import DeepSeekConfig
 
                     config = DeepSeekConfig(
-                        host="localhost", port=self.deepseek_port, timeout=120
+                        host="localhost", port=self.deepseek_port, timeout=300
                     )
                     self.enhanced_generator = EnhancedComplexShapeGenerator(
                         llm_client=None,  # Will use DeepSeek
@@ -742,9 +742,11 @@ class FreeCADCLI:
                 "🔄 Attempting DeepSeek R1 API call (may take up to 2 minutes for 14b model)..."
             )
 
-            # Create a shorter timeout for CLI usage
+            # Create a suitable timeout for CLI usage with 14B model
             original_timeout = self.deepseek_client.config.timeout
-            self.deepseek_client.config.timeout = 120  # 2 minutes max for CLI
+            self.deepseek_client.config.timeout = (
+                300  # 5 minutes max for CLI with 14B model
+            )
 
             response = asyncio.run(
                 self.deepseek_client.generate_complex_part(
