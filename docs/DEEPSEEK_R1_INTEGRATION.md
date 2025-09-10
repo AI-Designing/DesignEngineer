@@ -194,12 +194,12 @@ enhanced_generator:
     aesthetic_quality: 0.8
     manufacturability: 0.9
     performance_score: 0.85
-  
+
   pattern_learning:
     enabled: true
     max_patterns: 1000
     similarity_threshold: 0.6
-  
+
   quality_prediction:
     enabled: true
     confidence_threshold: 0.7
@@ -395,7 +395,7 @@ else:
    ```bash
    # Check if server is running
    curl http://localhost:8000/health
-   
+
    # Start server manually
    cd ~/.deepseek-r1
    python3 deepseek_server.py
@@ -408,7 +408,7 @@ else:
        'geometric_accuracy': 0.8,  # Lower threshold
        'design_consistency': 0.75
    }
-   
+
    # Use technical mode for precision
    mode = DeepSeekMode.TECHNICAL
    ```
@@ -417,7 +417,7 @@ else:
    ```python
    # Use fast mode for simple parts
    mode = DeepSeekMode.FAST
-   
+
    # Reduce max_tokens
    config = DeepSeekConfig(max_tokens=4096)
    ```

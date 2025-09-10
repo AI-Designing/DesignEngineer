@@ -98,7 +98,7 @@ python examples/demo_enhanced_system.py --auto
 ### Generation Modes
 ```python
 GenerationMode.ADAPTIVE      # AI selects best mode
-GenerationMode.PARALLEL      # Concurrent execution  
+GenerationMode.PARALLEL      # Concurrent execution
 GenerationMode.INCREMENTAL   # Step-by-step building
 GenerationMode.TEMPLATE_BASED # Pattern-based generation
 GenerationMode.HYBRID        # Combined approaches

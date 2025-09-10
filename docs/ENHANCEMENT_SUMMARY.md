@@ -89,7 +89,7 @@ result = enhanced_generator.generate_enhanced_complex_shape(
 
 modes = {
     GenerationMode.ADAPTIVE: "Intelligent mode selection",
-    GenerationMode.PARALLEL: "Concurrent step execution", 
+    GenerationMode.PARALLEL: "Concurrent step execution",
     GenerationMode.INCREMENTAL: "Step-by-step building",
     GenerationMode.TEMPLATE_BASED: "Pattern-based generation",
     GenerationMode.HYBRID: "Combined approach"
@@ -103,7 +103,7 @@ quality_forecast = predictor.predict_overall_quality(plan, context)
 
 # Optimize plan to meet specific targets
 optimized_plan = optimizer.optimize_for_quality(
-    plan, 
+    plan,
     quality_targets={"geometric_accuracy": 0.95, "manufacturability": 0.9}
 )
 ```

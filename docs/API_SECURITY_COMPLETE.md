@@ -42,7 +42,7 @@ api_key = get_api_key()  # Loaded from .env file
 
 ## 🔑 Your API Key is Now Secure
 
-### **Location:** 
+### **Location:**
 - ✅ Stored in `.env` file (local only)
 - ✅ Loaded via secure configuration system
 - ❌ NOT in source code anymore
@@ -104,7 +104,7 @@ PYTHONPATH=src ./venv/bin/python -c "from ai_designer.config import get_config; 
 ```
 project/
 ├── .env                    # ✅ Your API key (local only)
-├── .env.example           # ✅ Template (safe to commit)  
+├── .env.example           # ✅ Template (safe to commit)
 ├── .gitignore            # ✅ Excludes .env
 ├── docs/
 │   └── SECURITY_GUIDE.md # ✅ Security documentation
@@ -149,7 +149,7 @@ project/
 
 ## 🎉 Success!
 
-**Your API key is now secure and will NOT be pushed to GitHub!** 
+**Your API key is now secure and will NOT be pushed to GitHub!**
 
 The system maintains all functionality while protecting your sensitive information. You can safely develop, commit, and share your project without exposing your API key.
 

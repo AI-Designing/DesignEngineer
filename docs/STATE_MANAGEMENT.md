@@ -50,7 +50,7 @@ The system consists of several key components:
    # Ubuntu/Debian
    sudo apt-get install redis-server
    redis-server
-   
+
    # Or using Docker
    docker run -d -p 6379:6379 redis:latest
    ```
@@ -77,17 +77,17 @@ service = FreeCADStateService(
 # Connect to Redis
 if service.connect():
     print("Connected to Redis!")
-    
+
     # Analyze and cache current FreeCAD state
     result = service.analyze_and_cache_state(
         document_name="MyProject",
         session_id="session_001",
         expiration=3600  # 1 hour
     )
-    
+
     if result['success']:
         print(f"Analysis cached with key: {result['analysis_key']}")
-        
+
         # Retrieve current state
         current_state = service.get_current_state("MyProject")
         print("Current state:", current_state)
@@ -304,7 +304,7 @@ service.analyze_and_cache_state(
 
 # Long-term project data (7 days)
 service.analyze_and_cache_state(
-    document_name="ImportantProject", 
+    document_name="ImportantProject",
     expiration=604800
 )
 

@@ -4,49 +4,46 @@ Direct FreeCAD GUI Command Sender
 Sends commands directly to the running FreeCAD GUI session via socket
 """
 
-import socket
 import json
+import socket
 import time
+
 
 def send_command_to_freecad_gui(script, port=60543):
     """Send a command directly to the FreeCAD GUI via socket"""
     try:
         print(f"📡 Connecting to FreeCAD GUI on port {port}...")
-        
+
         # Connect to FreeCAD GUI
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_socket.settimeout(10)
-        client_socket.connect(('localhost', port))
-        
+        client_socket.connect(("localhost", port))
+
         print("✅ Connected to FreeCAD GUI!")
-        
+
         # Prepare command
-        command = {
-            'type': 'execute_script',
-            'script': script,
-            'timestamp': time.time()
-        }
-        
+        command = {"type": "execute_script", "script": script, "timestamp": time.time()}
+
         # Send command
-        message = json.dumps(command).encode('utf-8')
+        message = json.dumps(command).encode("utf-8")
         client_socket.send(message)
         print("📤 Command sent!")
-        
+
         # Wait for response
         response_data = client_socket.recv(4096)
-        response = json.loads(response_data.decode('utf-8'))
-        
+        response = json.loads(response_data.decode("utf-8"))
+
         print(f"📥 Response: {response}")
-        
+
         client_socket.close()
-        
-        if response.get('status') == 'executed':
+
+        if response.get("status") == "executed":
             print("✅ Command executed successfully in GUI!")
             return True
         else:
             print("❌ Command execution failed")
             return False
-            
+
     except ConnectionRefusedError:
         print("❌ Cannot connect to FreeCAD GUI")
         print("💡 Make sure the persistent GUI is running")
@@ -55,9 +52,10 @@ def send_command_to_freecad_gui(script, port=60543):
         print(f"❌ Error: {e}")
         return False
 
+
 def create_box_in_gui():
     """Create a box in the persistent GUI"""
-    script = '''
+    script = """
 # Create box in the SAME document
 doc = FreeCAD.ActiveDocument
 if not doc:
@@ -81,14 +79,15 @@ print(f"✅ Box created! Document now has {len(doc.Objects)} objects")
 import FreeCADGui
 if hasattr(FreeCADGui, 'ActiveDocument') and FreeCADGui.ActiveDocument:
     FreeCADGui.SendMsgToActiveView("ViewFit")
-'''
-    
+"""
+
     print("🔧 Creating Red Box in persistent GUI...")
     return send_command_to_freecad_gui(script)
 
+
 def create_cylinder_in_gui():
     """Create a cylinder in the persistent GUI"""
-    script = '''
+    script = """
 # Create cylinder in the SAME document
 doc = FreeCAD.ActiveDocument
 if not doc:
@@ -111,14 +110,15 @@ print(f"✅ Cylinder created! Document now has {len(doc.Objects)} objects")
 import FreeCADGui
 if hasattr(FreeCADGui, 'ActiveDocument') and FreeCADGui.ActiveDocument:
     FreeCADGui.SendMsgToActiveView("ViewFit")
-'''
-    
+"""
+
     print("🔧 Creating Blue Cylinder in persistent GUI...")
     return send_command_to_freecad_gui(script)
 
+
 def create_sphere_in_gui():
     """Create a sphere in the persistent GUI"""
-    script = '''
+    script = """
 # Create sphere in the SAME document
 doc = FreeCAD.ActiveDocument
 if not doc:
@@ -140,14 +140,15 @@ print(f"✅ Sphere created! Document now has {len(doc.Objects)} objects")
 import FreeCADGui
 if hasattr(FreeCADGui, 'ActiveDocument') and FreeCADGui.ActiveDocument:
     FreeCADGui.SendMsgToActiveView("ViewFit")
-'''
-    
+"""
+
     print("🔧 Creating Green Sphere in persistent GUI...")
     return send_command_to_freecad_gui(script)
 
+
 def create_cone_in_gui():
     """Create a cone in the persistent GUI"""
-    script = '''
+    script = """
 # Create cone in the SAME document
 doc = FreeCAD.ActiveDocument
 if not doc:
@@ -171,14 +172,15 @@ print(f"✅ Cone created! Document now has {len(doc.Objects)} objects")
 import FreeCADGui
 if hasattr(FreeCADGui, 'ActiveDocument') and FreeCADGui.ActiveDocument:
     FreeCADGui.SendMsgToActiveView("ViewFit")
-'''
-    
+"""
+
     print("🔧 Creating Yellow Cone in persistent GUI...")
     return send_command_to_freecad_gui(script)
 
+
 def show_all_objects():
     """Show all objects in the document"""
-    script = '''
+    script = """
 # Show all objects in the document
 doc = FreeCAD.ActiveDocument
 if doc:
@@ -187,7 +189,7 @@ if doc:
     print("🏗️  Objects in document:")
     for i, obj in enumerate(doc.Objects, 1):
         print(f"  {i}. {obj.Label} ({obj.TypeId})")
-    
+
     # Update view to show all
     import FreeCADGui
     if hasattr(FreeCADGui, 'ActiveDocument') and FreeCADGui.ActiveDocument:
@@ -195,10 +197,11 @@ if doc:
         print("🔄 View updated to show all objects")
 else:
     print("❌ No active document")
-'''
-    
+"""
+
     print("📊 Checking all objects in GUI...")
     return send_command_to_freecad_gui(script)
+
 
 def main():
     """Main demonstration"""
@@ -206,32 +209,33 @@ def main():
     print("=" * 50)
     print("💡 This sends commands directly to the persistent FreeCAD GUI")
     print("✅ Objects will appear in the SAME document window")
-    
+
     commands = [
         ("Red Box", create_box_in_gui),
-        ("Blue Cylinder", create_cylinder_in_gui), 
+        ("Blue Cylinder", create_cylinder_in_gui),
         ("Green Sphere", create_sphere_in_gui),
         ("Yellow Cone", create_cone_in_gui),
-        ("Show All Objects", show_all_objects)
+        ("Show All Objects", show_all_objects),
     ]
-    
+
     for i, (name, func) in enumerate(commands, 1):
         print(f"\n🎯 Step {i}/{len(commands)}: {name}")
-        
+
         success = func()
-        
+
         if success:
             print(f"✅ {name} completed successfully!")
         else:
             print(f"❌ {name} failed")
-        
+
         if i < len(commands):
             print("⏱️  Waiting 3 seconds before next command...")
             time.sleep(3)
-    
+
     print(f"\n🎉 Demo completed!")
     print("💡 Check the FreeCAD GUI window - you should see all colorful objects!")
     print("🔄 The objects are in the SAME document and visible in real-time")
+
 
 if __name__ == "__main__":
     main()

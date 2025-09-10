@@ -6,7 +6,7 @@ This directory contains demonstration scripts and usage examples for the FreeCAD
 
 ```
 examples/
-├── README.md                        # This file  
+├── README.md                        # This file
 ├── demos/                          # Demo scripts
 │   ├── demo_continuous_updates.py  # Continuous updates demonstration
 │   ├── demo_persistent_fix.py      # Persistent GUI fixes demonstration
@@ -21,37 +21,37 @@ examples/
 ## Demo Scripts (`demos/`)
 
 ### Continuous Updates Demo
-**File:** `demos/demo_continuous_updates.py`  
+**File:** `demos/demo_continuous_updates.py`
 Demonstrates how the system provides continuous updates during command execution.
 
-### Persistent GUI Demo  
-**File:** `demos/demo_persistent_fix.py`  
+### Persistent GUI Demo
+**File:** `demos/demo_persistent_fix.py`
 Shows how the persistent FreeCAD GUI maintains state across multiple commands.
 
 ### Real Execution Demo
-**File:** `demos/demo_real_execution.py`  
+**File:** `demos/demo_real_execution.py`
 Demonstrates the difference between simulation mode and real execution mode (`--real` flag).
 
 ### Real-time FreeCAD Demo
-**File:** `demos/demo_realtime_freecad.py`  
+**File:** `demos/demo_realtime_freecad.py`
 Shows real-time interaction with FreeCAD API and immediate object creation.
 
 ### Real-time GUI Demo
-**File:** `demos/demo_realtime_gui.py`  
+**File:** `demos/demo_realtime_gui.py`
 Demonstrates real-time GUI updates as commands are executed.
 
 ## Usage Examples
 
 ### State Management
-**File:** `demo_state_management.py`  
+**File:** `demo_state_management.py`
 Comprehensive example of state management features including saving, loading, and caching design states.
 
 ### CLI Usage
-**File:** `state_cli_example.py`  
+**File:** `state_cli_example.py`
 Examples of using the command-line interface with various natural language commands.
 
 ### WebSocket Client
-**File:** `websocket_client_example.py`  
+**File:** `websocket_client_example.py`
 Example of connecting to the WebSocket server for real-time monitoring and communication.
 
 ## Running Examples
@@ -61,7 +61,7 @@ Example of connecting to the WebSocket server for real-time monitoring and commu
 # Run state management demo
 python examples/demo_state_management.py
 
-# Run CLI examples  
+# Run CLI examples
 python examples/state_cli_example.py
 
 # Run WebSocket client example

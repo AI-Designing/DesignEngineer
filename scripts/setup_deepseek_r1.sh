@@ -39,27 +39,27 @@ print_error() {
 # Check system requirements
 check_requirements() {
     print_status "Checking system requirements..."
-    
+
     # Check Python
     if ! command -v python3 &> /dev/null; then
         print_error "Python 3 is required but not installed"
         exit 1
     fi
-    
+
     # Check if we have enough memory (recommend 8GB+)
     total_mem=$(grep MemTotal /proc/meminfo | awk '{print $2}')
     total_mem_gb=$((total_mem / 1024 / 1024))
-    
+
     if [ $total_mem_gb -lt 8 ]; then
         print_warning "DeepSeek R1 recommends at least 8GB RAM. You have ${total_mem_gb}GB"
         print_warning "Performance may be limited"
     else
         print_success "Memory check passed: ${total_mem_gb}GB available"
     fi
-    
+
     # Check disk space (recommend 10GB+)
     available_space=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
-    
+
     if [ $available_space -lt 10 ]; then
         print_warning "DeepSeek R1 recommends at least 10GB free space. You have ${available_space}GB"
     else
@@ -70,27 +70,27 @@ check_requirements() {
 # Install dependencies
 install_dependencies() {
     print_status "Installing DeepSeek R1 dependencies..."
-    
+
     # Update pip
     python3 -m pip install --upgrade pip
-    
+
     # Install required packages
     pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
     pip3 install transformers accelerate
     pip3 install fastapi uvicorn
     pip3 install requests websockets
     pip3 install pydantic
-    
+
     print_success "Dependencies installed successfully"
 }
 
 # Download DeepSeek R1 model
 download_model() {
     print_status "Setting up DeepSeek R1 model..."
-    
+
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
-    
+
     # Create a simple DeepSeek R1 server wrapper
     cat > deepseek_server.py << 'EOF'
 #!/usr/bin/env python3
@@ -152,27 +152,27 @@ class ChatResponse(BaseModel):
 # Mock DeepSeek R1 implementation for demo
 class MockDeepSeekR1:
     """Mock implementation of DeepSeek R1 for demonstration"""
-    
+
     def __init__(self):
         self.model_name = "deepseek-r1"
         self.request_count = 0
-    
+
     def generate_freecad_code(self, prompt: str, reasoning_enabled: bool = True) -> Dict[str, Any]:
         """Generate FreeCAD code with reasoning chain"""
         self.request_count += 1
-        
+
         # Analyze the prompt to determine complexity
         complexity = self._analyze_complexity(prompt)
-        
+
         # Generate reasoning chain
         reasoning_steps = self._generate_reasoning_steps(prompt, complexity)
-        
+
         # Generate FreeCAD code
         generated_code = self._generate_freecad_code(prompt, complexity)
-        
+
         # Calculate confidence
         confidence = 0.85 if complexity < 5 else 0.75
-        
+
         return {
             "code": generated_code,
             "reasoning": reasoning_steps if reasoning_enabled else [],
@@ -180,27 +180,27 @@ class MockDeepSeekR1:
             "complexity": complexity,
             "execution_time": 2.5 + (complexity * 0.5)
         }
-    
+
     def _analyze_complexity(self, prompt: str) -> int:
         """Analyze prompt complexity (1-10 scale)"""
         complexity_keywords = {
             'simple': 1, 'basic': 2, 'gear': 6, 'assembly': 7,
             'complex': 8, 'advanced': 9, 'linkage': 8, 'mechanism': 7
         }
-        
+
         prompt_lower = prompt.lower()
         max_complexity = 3  # Base complexity
-        
+
         for keyword, score in complexity_keywords.items():
             if keyword in prompt_lower:
                 max_complexity = max(max_complexity, score)
-        
+
         return min(10, max_complexity)
-    
+
     def _generate_reasoning_steps(self, prompt: str, complexity: int) -> List[Dict[str, Any]]:
         """Generate reasoning steps based on prompt analysis"""
         steps = []
-        
+
         # Step 1: Analysis
         steps.append({
             "description": "Analyze design requirements",
@@ -208,7 +208,7 @@ class MockDeepSeekR1:
             "confidence": 0.9,
             "status": "completed"
         })
-        
+
         # Step 2: Planning
         steps.append({
             "description": "Plan FreeCAD implementation approach",
@@ -216,7 +216,7 @@ class MockDeepSeekR1:
             "confidence": 0.85,
             "status": "completed"
         })
-        
+
         # Additional steps for complex parts
         if complexity >= 6:
             steps.append({
@@ -225,14 +225,14 @@ class MockDeepSeekR1:
                 "confidence": 0.8,
                 "status": "completed"
             })
-            
+
             steps.append({
                 "description": "Optimize for manufacturability",
                 "reasoning": "Ensuring design can be manufactured with standard processes",
                 "confidence": 0.75,
                 "status": "completed"
             })
-        
+
         # Final step
         steps.append({
             "description": "Generate FreeCAD Python code",
@@ -240,15 +240,15 @@ class MockDeepSeekR1:
             "confidence": 0.9,
             "status": "completed"
         })
-        
+
         return steps
-    
+
     def _generate_freecad_code(self, prompt: str, complexity: int) -> str:
         """Generate appropriate FreeCAD code based on prompt and complexity"""
-        
+
         # Determine what type of part to create
         prompt_lower = prompt.lower()
-        
+
         if 'shaft' in prompt_lower:
             return self._generate_shaft_code()
         elif 'gear' in prompt_lower:
@@ -261,7 +261,7 @@ class MockDeepSeekR1:
             return self._generate_simple_box_code()
         else:
             return self._generate_generic_part_code(prompt)
-    
+
     def _generate_shaft_code(self) -> str:
         return '''
 import FreeCAD as App
@@ -297,7 +297,7 @@ chamfer.Base = shaft_with_keyway
 doc.recompute()
 print("Shaft with keyway created successfully!")
 '''
-    
+
     def _generate_gear_assembly_code(self) -> str:
         return '''
 import FreeCAD as App
@@ -363,7 +363,7 @@ bracket.Placement = App.Placement(App.Vector(-15, -7.5, -25), App.Rotation())
 doc.recompute()
 print("Gear assembly created successfully!")
 '''
-    
+
     def _generate_phone_stand_code(self) -> str:
         return '''
 import FreeCAD as App
@@ -415,7 +415,7 @@ angle_support.Placement = App.Placement(App.Vector(50, 0, 8), App.Rotation(App.V
 doc.recompute()
 print("Innovative phone stand created successfully!")
 '''
-    
+
     def _generate_linkage_code(self) -> str:
         return '''
 import FreeCAD as App
@@ -478,7 +478,7 @@ pin2.Placement = App.Placement(App.Vector(85, -6, 10), App.Rotation(App.Vector(1
 doc.recompute()
 print("Linkage mechanism created successfully!")
 '''
-    
+
     def _generate_simple_box_code(self) -> str:
         return '''
 import FreeCAD as App
@@ -497,7 +497,7 @@ test_cube.Placement = App.Placement(App.Vector(0, 0, 0), App.Rotation())
 doc.recompute()
 print("Simple test cube created successfully!")
 '''
-    
+
     def _generate_generic_part_code(self, prompt: str) -> str:
         return f'''
 import FreeCAD as App
@@ -538,7 +538,7 @@ async def health_check():
 @app.post("/v1/chat/completions", response_model=ChatResponse)
 async def chat_completions(request: ChatRequest):
     """Chat completions endpoint compatible with OpenAI API"""
-    
+
     try:
         # Extract the user message
         user_message = None
@@ -546,21 +546,21 @@ async def chat_completions(request: ChatRequest):
             if msg.role == "user":
                 user_message = msg.content
                 break
-        
+
         if not user_message:
             raise HTTPException(status_code=400, detail="No user message found")
-        
+
         # Generate response using mock DeepSeek
         start_time = time.time()
         generation_result = deepseek_model.generate_freecad_code(
-            user_message, 
+            user_message,
             reasoning_enabled=request.reasoning
         )
         execution_time = time.time() - start_time
-        
+
         # Format response
         response_content = generation_result["code"]
-        
+
         # Add reasoning chain if requested
         if request.reasoning and generation_result["reasoning"]:
             reasoning_text = "\\n\\n# Reasoning Chain:\\n"
@@ -568,7 +568,7 @@ async def chat_completions(request: ChatRequest):
                 reasoning_text += f"# Step {i+1}: {step['description']}\\n"
                 reasoning_text += f"# {step['reasoning']}\\n"
             response_content = reasoning_text + "\\n" + response_content
-        
+
         # Create response
         response = ChatResponse(
             id=f"chatcmpl-{int(time.time())}",
@@ -591,11 +591,11 @@ async def chat_completions(request: ChatRequest):
                 "total_tokens": len(user_message.split()) + len(response_content.split())
             }
         )
-        
+
         logger.info(f"Generated response in {execution_time:.2f}s, confidence: {generation_result['confidence']:.2f}")
-        
+
         return response
-        
+
     except Exception as e:
         logger.error(f"Error in chat completions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -631,19 +631,19 @@ if __name__ == "__main__":
     print(f"🏥 Health check: http://localhost:8000/health")
     print(f"📊 Stats: http://localhost:8000/stats")
     print("✅ Server ready for FreeCAD complex part generation!")
-    
+
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
 EOF
-    
+
     chmod +x deepseek_server.py
-    
+
     print_success "DeepSeek R1 server script created"
 }
 
 # Create systemd service (optional)
 create_service() {
     print_status "Creating systemd service (optional)..."
-    
+
     if [ "$EUID" -eq 0 ]; then
         # Create systemd service file
         cat > /etc/systemd/system/deepseek-r1.service << EOF
@@ -664,10 +664,10 @@ Environment=PYTHONPATH=$INSTALL_DIR
 [Install]
 WantedBy=multi-user.target
 EOF
-        
+
         systemctl daemon-reload
         systemctl enable deepseek-r1
-        
+
         print_success "Systemd service created and enabled"
         print_status "Use 'sudo systemctl start deepseek-r1' to start the service"
     else
@@ -678,7 +678,7 @@ EOF
 # Create startup script
 create_startup_script() {
     print_status "Creating startup script..."
-    
+
     cat > "$INSTALL_DIR/start_deepseek.sh" << EOF
 #!/bin/bash
 # Start DeepSeek R1 FreeCAD Server
@@ -691,9 +691,9 @@ echo "🛑 Press Ctrl+C to stop"
 
 python3 deepseek_server.py
 EOF
-    
+
     chmod +x "$INSTALL_DIR/start_deepseek.sh"
-    
+
     # Create desktop launcher
     if [ -d "$HOME/.local/share/applications" ]; then
         cat > "$HOME/.local/share/applications/deepseek-r1.desktop" << EOF
@@ -707,29 +707,29 @@ Icon=applications-engineering
 Terminal=true
 Categories=Development;Engineering;
 EOF
-        
+
         print_success "Desktop launcher created"
     fi
-    
+
     print_success "Startup script created at $INSTALL_DIR/start_deepseek.sh"
 }
 
 # Test installation
 test_installation() {
     print_status "Testing installation..."
-    
+
     # Start server in background
     cd "$INSTALL_DIR"
     python3 deepseek_server.py &
     SERVER_PID=$!
-    
+
     # Wait for server to start
     sleep 5
-    
+
     # Test health endpoint
     if curl -s "http://localhost:$DEEPSEEK_PORT/health" > /dev/null; then
         print_success "Health check passed"
-        
+
         # Test chat endpoint
         if curl -s -X POST "http://localhost:$DEEPSEEK_PORT/v1/chat/completions" \
            -H "Content-Type: application/json" \
@@ -742,30 +742,30 @@ test_installation() {
     else
         print_error "Health check failed"
     fi
-    
+
     # Stop test server
     kill $SERVER_PID 2>/dev/null
     wait $SERVER_PID 2>/dev/null
-    
+
     print_success "Installation test completed"
 }
 
 # Main installation process
 main() {
     print_status "Starting DeepSeek R1 installation for FreeCAD..."
-    
+
     check_requirements
     install_dependencies
     download_model
     create_startup_script
-    
+
     # Optional service creation
     if [ "$1" = "--service" ]; then
         create_service
     fi
-    
+
     test_installation
-    
+
     echo
     print_success "🎉 DeepSeek R1 installation completed!"
     echo

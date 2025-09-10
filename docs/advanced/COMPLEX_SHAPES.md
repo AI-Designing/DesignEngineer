@@ -79,7 +79,7 @@ The system uses keyword analysis to detect complex requests:
 ```python
 # Keywords that trigger complex processing
 complex_keywords = [
-    "complex", "combine", "together", "and", "with", 
+    "complex", "combine", "together", "and", "with",
     "tower", "rocket", "structure", "building", "assembly"
 ]
 

@@ -41,7 +41,7 @@ case "$MODE" in
         echo "🎭 Running demo mode with predefined commands..."
         python enhanced_main.py --llm-api-key "$API_KEY" --demo-mode
         ;;
-    
+
     "interactive")
         echo "💬 Starting interactive mode..."
         echo "You can enter commands like:"
@@ -52,17 +52,17 @@ case "$MODE" in
         echo ""
         python enhanced_main.py --llm-api-key "$API_KEY" --interactive
         ;;
-    
+
     "complex")
         echo "🔧 Testing complex shape generation..."
         python enhanced_main.py --llm-api-key "$API_KEY" --test-complex-shapes
         ;;
-    
+
     "single")
         echo "⚡ Single command mode - testing cone and cylinder creation..."
         python enhanced_main.py --llm-api-key "$API_KEY" --single-command "create a cone and cylinder together"
         ;;
-    
+
     *)
         echo "❌ Unknown mode: $MODE"
         echo "Available modes: demo, interactive, complex, single"

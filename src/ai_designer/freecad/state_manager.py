@@ -321,3 +321,38 @@ print("ANALYSIS_RESULT:" + json.dumps(analysis_data))
                 print(f"  • {obj['name']} ({obj['type']})")
 
         print("=" * 50)
+
+    def get_current_state(self):
+        """
+        Get current FreeCAD state for LLM context
+        Returns a simplified state summary suitable for LLM processing
+        """
+        try:
+            analysis = self.analyze_document_state()
+
+            if analysis.get("status") == "success":
+                return {
+                    "document_name": analysis.get("document", "Untitled"),
+                    "object_count": analysis.get("object_count", 0),
+                    "objects": analysis.get("objects", []),
+                    "analysis": analysis.get("analysis", {}),
+                    "has_active_document": True,
+                }
+            else:
+                return {
+                    "document_name": None,
+                    "object_count": 0,
+                    "objects": [],
+                    "analysis": {},
+                    "has_active_document": False,
+                    "error": analysis.get("error", "Unknown error"),
+                }
+        except Exception as e:
+            return {
+                "document_name": None,
+                "object_count": 0,
+                "objects": [],
+                "analysis": {},
+                "has_active_document": False,
+                "error": str(e),
+            }

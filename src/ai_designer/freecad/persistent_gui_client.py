@@ -681,3 +681,68 @@ print("🔄 GUI script running, waiting for commands...")
     def __del__(self):
         """Cleanup when object is destroyed"""
         self.stop_gui()
+
+    def send_update_signal(self):
+        """
+        Send update signal to the persistent FreeCAD GUI
+        Triggers a refresh/recompute of the current document
+        """
+        try:
+            if not self.is_running:
+                print("⚠️ Persistent GUI not running, cannot send update signal")
+                return False
+
+            # Send recompute command to update the GUI
+            update_command = (
+                "App.ActiveDocument.recompute() if App.ActiveDocument else None"
+            )
+            result = self._send_command_to_gui(update_command)
+
+            if result.get("status") == "success":
+                print("✅ GUI update signal sent successfully")
+                return True
+            else:
+                print(
+                    f"⚠️ GUI update signal failed: {result.get('message', 'Unknown error')}"
+                )
+                return False
+
+        except Exception as e:
+            print(f"❌ Failed to send GUI update signal: {e}")
+            return False
+
+    def _send_command_to_gui(self, command):
+        """
+        Send a command to the persistent GUI via socket communication
+        """
+        try:
+            if not self.communication_port:
+                return {"status": "error", "message": "No communication port available"}
+
+            # Create a simple socket client to send command
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(5.0)  # 5 second timeout
+                sock.connect(("localhost", self.communication_port))
+
+                # Send command
+                command_data = {"command": command, "type": "execute"}
+                message = json.dumps(command_data) + "\n"
+                sock.sendall(message.encode())
+
+                # Get response
+                response_data = sock.recv(4096).decode()
+                if response_data:
+                    response = json.loads(response_data.strip())
+                    return response
+                else:
+                    return {"status": "error", "message": "No response from GUI"}
+
+        except ConnectionRefusedError:
+            return {
+                "status": "error",
+                "message": "GUI not responding on communication port",
+            }
+        except json.JSONDecodeError as e:
+            return {"status": "error", "message": f"Invalid response format: {e}"}
+        except Exception as e:
+            return {"status": "error", "message": f"Communication error: {e}"}

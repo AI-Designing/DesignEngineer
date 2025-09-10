@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: Reorganized project structure with proper directory hierarchy
 - Moved all demo scripts to `examples/demos/` directory
 - Moved monitoring tools to `tools/monitoring/` directory
-- Moved GUI tools to `tools/gui/` directory  
+- Moved GUI tools to `tools/gui/` directory
 - Moved debug scripts to `tools/debug/` directory
 - Moved test scripts to `tools/testing/` directory
 - Moved utility scripts to `tools/utilities/` directory
@@ -120,7 +120,7 @@ verify_real_objects.py → tools/utilities/verify_real_objects.py
 - Enhanced WebSocket monitoring capabilities
 - Improved command execution with visual feedback
 
-### [2024-08-17] - Core System Development  
+### [2024-08-17] - Core System Development
 - Initial implementation of LLM-powered FreeCAD automation
 - WebSocket real-time communication system
 - State management and caching with Redis

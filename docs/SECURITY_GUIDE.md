@@ -27,7 +27,7 @@ Your Google API key (`AIzaSyCWUpvNYmalx0whFyG6eIIcSY__ioMSZEc`) should **never**
 3. **Use Secure Configuration in Code**
    ```python
    from ai_designer.config import get_api_key
-   
+
    # Secure API key loading
    api_key = get_api_key()  # Loaded from .env file
    ```

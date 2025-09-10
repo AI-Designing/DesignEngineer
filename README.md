@@ -6,7 +6,7 @@ AI Designer is a comprehensive FreeCAD automation system that allows users to in
 
 **Key Features:**
 - **🧠 Intelligent State Management**: Saves and retrieves current design state with all required data
-- **⚡ Low-Latency Processing**: Optimized for quick decision-making and execution  
+- **⚡ Low-Latency Processing**: Optimized for quick decision-making and execution
 - **🔄 Real-time Updates**: Live progress tracking via WebSocket connections
 - **🎯 LLM-Powered Decisions**: Uses AI to make intelligent next-step decisions
 - **📊 Complete Component Building**: Capable of building entire design components
@@ -233,7 +233,7 @@ async def websocket_client():
             "type": "register_session",
             "session_id": "my_session"
         }))
-        
+
         # Listen for real-time updates
         async for message in websocket:
             data = json.loads(message)
@@ -275,7 +275,7 @@ The system implements a comprehensive architecture with the following layers:
 - **Error Handling**: Comprehensive error recovery and user feedback
 - **Live Updates**: Real-time progress tracking and notifications
 
-### AI Enhancement Layer  
+### AI Enhancement Layer
 - **Intent Processing**: Understands and categorizes user requirements
 - **Command Generation**: Creates appropriate FreeCAD commands
 - **Context Analysis**: Analyzes current design state for informed decisions
@@ -371,7 +371,7 @@ AI Designer includes comprehensive development and testing tools located in the 
 - **WebSocket Monitor** (`tools/monitoring/websocket_monitor.py`): Real-time monitoring of WebSocket communication
 - Live progress tracking and error notifications
 
-### 🖥️ GUI Tools  
+### 🖥️ GUI Tools
 - **GUI Launcher** (`tools/gui/simple_gui_launcher.py`): Persistent FreeCAD GUI management
 - **Direct Commands** (`tools/gui/direct_gui_commands.py`): Send commands directly to GUI via socket
 
@@ -441,14 +441,14 @@ python examples/websocket_client_example.py
 
 # Try these commands:
 "Create a parametric model of a chair"
-"Add a table with adjustable height" 
+"Add a table with adjustable height"
 "Design a simple house layout"
 "Export the entire scene as OBJ file"
 ```
 
 The system will demonstrate:
 - ✅ Intelligent intent understanding and processing
-- ✅ State-aware LLM decision making  
+- ✅ State-aware LLM decision making
 - ✅ Real-time progress tracking and updates
 - ✅ Automatic state management and checkpointing
 - ✅ Comprehensive error handling and recovery

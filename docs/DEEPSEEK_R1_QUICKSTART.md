@@ -130,7 +130,7 @@ deepseek:
   port: 8000
   model_name: "deepseek-r1"
   reasoning_enabled: true
-  
+
 enhanced_generator:
   use_deepseek: true
   quality_targets:

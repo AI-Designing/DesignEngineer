@@ -58,25 +58,25 @@ graph TD
     A[User Request] --> B[Complexity Analysis]
     B --> C[Strategy Selection]
     C --> D{Strategy Type}
-    
+
     D -->|Decomposed| E[Complex Shape Generator]
     D -->|Iterative| F[Iterative Enhancement]
     D -->|Incremental| G[Incremental Building]
     D -->|Adaptive| H[Adaptive Processing]
-    
+
     E --> I[State Monitoring]
     F --> I
     G --> I
     H --> I
-    
+
     I --> J[LLM Feedback]
     J --> K[Quality Assessment]
     K --> L[Next Action Decision]
     L --> M{Continue?}
-    
+
     M -->|Yes| N[Execute Next Step]
     M -->|No| O[Generate Documentation]
-    
+
     N --> I
     O --> P[Final Result]
 ```
@@ -120,7 +120,7 @@ result = enhanced_system.process_complex_shape_request(
 # Monitor progress
 if result['status'] == 'success':
     generation_result = result['result']['generation_result']
-    
+
     print(f"Steps Executed: {generation_result['execution_result']['executed_steps']}")
     print(f"Success Rate: {generation_result['session_metrics']['successful_steps']} / {generation_result['session_metrics']['total_steps']}")
     print(f"Quality Score: {generation_result['validation_result']['quality_score']}")

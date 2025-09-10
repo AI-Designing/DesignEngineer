@@ -9,7 +9,7 @@ echo "=============================================="
 # Check if Redis is installed
 if ! command -v redis-server &> /dev/null; then
     echo "❌ Redis is not installed. Installing..."
-    
+
     # Install Redis on Ubuntu/Debian
     if command -v apt &> /dev/null; then
         sudo apt update
@@ -37,7 +37,7 @@ fi
 # Check if Redis is running
 if ! redis-cli ping &> /dev/null; then
     echo "🔄 Starting Redis server..."
-    
+
     # Start Redis server in background
     if command -v systemctl &> /dev/null; then
         sudo systemctl start redis-server
@@ -46,10 +46,10 @@ if ! redis-cli ping &> /dev/null; then
         # Start Redis manually
         redis-server --daemonize yes
     fi
-    
+
     # Wait for Redis to start
     sleep 2
-    
+
     if redis-cli ping &> /dev/null; then
         echo "✅ Redis server started successfully"
     else

@@ -7,7 +7,7 @@ This document explains how to use the FreeCAD state analysis functionality that 
 The state analysis system provides comprehensive analysis of FreeCAD documents, checking for various design readiness indicators including:
 
 - ✅ **Pad Created**: Check if document has Pad objects
-- ✅ **Face Available**: Check if faces are available for operations  
+- ✅ **Face Available**: Check if faces are available for operations
 - ✅ **Active Body**: Check if there's an active PartDesign body
 - ✅ **Sketch Plane Ready**: Check if sketches are mapped to planes
 - ✅ **Constrained Base Sketch**: Check if sketches are fully constrained

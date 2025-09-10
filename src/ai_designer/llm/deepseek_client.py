@@ -207,11 +207,13 @@ TASK: Generate FreeCAD Python code for: {requirements}
 
 REQUIREMENTS:
 1. Create complete, executable FreeCAD Python code
-2. Use advanced FreeCAD features for complex geometries
-3. Include proper error handling and validation
-4. Add comprehensive comments explaining each step
-5. Follow best practices for parametric design
-6. Optimize for manufacturability when possible
+2. **IMPORTANT**: Always use the existing active document (App.ActiveDocument) - NEVER create new documents
+3. Use advanced FreeCAD features for complex geometries
+4. Include proper error handling and validation
+5. Add comprehensive comments explaining each step
+6. Follow best practices for parametric design
+7. Optimize for manufacturability when possible
+8. Call doc.recompute() after creating objects to ensure proper updates
 
 AVAILABLE FREECAD MODULES:
 - FreeCAD (App, Base, Vector, Rotation, Placement)
@@ -268,6 +270,43 @@ ADVANCED TECHNIQUES TO CONSIDER:
                 base_prompt += f"\n\nCONSTRAINTS:\n{str(constraints)}"
 
         base_prompt += """
+
+CRITICAL FREECAD DOCUMENT PATTERN:
+Follow this exact pattern for FreeCAD code:
+
+```python
+import FreeCAD as App
+import Part
+# Other imports as needed
+
+# ALWAYS use the existing active document - NEVER create new ones
+doc = App.ActiveDocument
+if not doc:
+    print("❌ No active document available")
+    exit()
+
+# Create your geometry here
+shape = Part.makeBox(10, 10, 10)  # Example
+
+# Add object to the existing document
+obj = doc.addObject("Part::Feature", "YourObjectName")
+obj.Shape = shape
+
+# Set placement if needed
+obj.Placement = App.Placement(App.Vector(0, 0, 0), App.Rotation())
+
+# Handle ViewObject safely (may not exist in headless mode)
+try:
+    if hasattr(obj, 'ViewObject') and obj.ViewObject:
+        obj.ViewObject.ShapeColor = (0.0, 1.0, 0.0)  # Optional coloring
+except Exception:
+    pass  # Ignore ViewObject errors in headless mode
+
+# ALWAYS recompute after creating objects
+doc.recompute()
+
+print("✅ Object created successfully!")
+```
 
 OUTPUT FORMAT:
 1. Brief analysis of the requirements
