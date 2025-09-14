@@ -89,11 +89,8 @@ class DeepSeekEndToEndTester:
                     if response.status_code == 200:
                         self.log(f"✅ DeepSeek R1 server found at {endpoint}", "success")
                         return True
-                except (
-                    requests.exceptions.RequestException,
-                    ConnectionError,
-                    TimeoutError,
-                ):
+                except (requests.exceptions.RequestException, OSError):
+                    # Connection failed, try next endpoint
                     continue
 
             self.log("❌ No DeepSeek R1 server found on common ports", "error")
@@ -289,7 +286,8 @@ class DeepSeekEndToEndTester:
                                     for i, line in enumerate(lines, 1):
                                         if pattern in line:
                                             self.log(f"   Line {i}: {line.strip()}")
-                    except (OSError, IOError, UnicodeDecodeError):
+                    except (OSError, UnicodeDecodeError, PermissionError):
+                        # File read error, skip this file
                         continue
 
         if mock_files:

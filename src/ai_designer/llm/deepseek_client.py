@@ -189,6 +189,65 @@ class DeepSeekR1Client:
                 error_message=str(e),
             )
 
+    def _analyze_requirement_complexity(self, requirements: str) -> str:
+        """Analyze the complexity level of the requirement for adaptive prompting"""
+        requirements_lower = requirements.lower()
+
+        # Complex indicators
+        complex_keywords = [
+            "gear",
+            "spring",
+            "helical",
+            "thread",
+            "involute",
+            "spiral",
+            "assembly",
+            "multiple parts",
+            "complex curve",
+            "organic shape",
+            "parametric",
+            "constraint",
+            "pattern",
+            "array",
+        ]
+
+        # Medium complexity indicators
+        medium_keywords = [
+            "hole",
+            "cut",
+            "boolean",
+            "fillet",
+            "chamfer",
+            "bracket",
+            "mount",
+            "slot",
+            "groove",
+            "extrude",
+            "revolve",
+        ]
+
+        # Basic shape indicators
+        basic_keywords = [
+            "cube",
+            "box",
+            "cylinder",
+            "sphere",
+            "cone",
+            "torus",
+            "simple",
+            "basic",
+            "primitive",
+        ]
+
+        if any(keyword in requirements_lower for keyword in complex_keywords):
+            return "complex"
+        elif any(keyword in requirements_lower for keyword in medium_keywords):
+            return "medium"
+        elif any(keyword in requirements_lower for keyword in basic_keywords):
+            return "basic"
+        else:
+            return "medium"  # Default to medium complexity
+
     def _build_complex_part_prompt(
         self,
         requirements: str,
@@ -196,24 +255,27 @@ class DeepSeekR1Client:
         context: Optional[Dict[str, Any]],
         constraints: Optional[Dict[str, Any]],
     ) -> str:
-        """Build optimized prompt for complex part generation"""
+        """Build optimized prompt for complex part generation with adaptive complexity"""
 
-        base_prompt = f"""You are an expert FreeCAD Python developer specializing in complex 3D part design.
+        # Analyze requirement complexity to adjust prompting strategy
+        complexity_level = self._analyze_requirement_complexity(requirements)
+
+        base_prompt = f"""You are an expert FreeCAD Python developer specializing in 3D part design.
 You have deep knowledge of mechanical engineering, CAD principles, and advanced Python programming.
 
 MODE: {mode.value.upper()}
+COMPLEXITY LEVEL: {complexity_level.upper()}
 
 TASK: Generate FreeCAD Python code for: {requirements}
 
 REQUIREMENTS:
 1. Create complete, executable FreeCAD Python code
-2. **IMPORTANT**: Always use the existing active document (App.ActiveDocument) - NEVER create new documents
-3. Use advanced FreeCAD features for complex geometries
-4. Include proper error handling and validation
-5. Add comprehensive comments explaining each step
-6. Follow best practices for parametric design
-7. Optimize for manufacturability when possible
-8. Call doc.recompute() after creating objects to ensure proper updates
+2. **CRITICAL**: Always use the existing active document (App.ActiveDocument) - NEVER create new documents
+3. Include proper error handling and validation
+4. Add comprehensive comments explaining each step
+5. Follow best practices for parametric design
+6. Call doc.recompute() after creating objects to ensure proper updates
+7. Use step-by-step approach for complex geometries
 
 AVAILABLE FREECAD MODULES:
 - FreeCAD (App, Base, Vector, Rotation, Placement)
@@ -231,6 +293,36 @@ ADVANCED TECHNIQUES TO CONSIDER:
 - Fillet and chamfer operations
 - Shell and thickness operations
 - Multi-body assemblies"""
+
+        # Add complexity-specific guidance
+        if complexity_level == "basic":
+            base_prompt += """
+
+COMPLEXITY GUIDANCE - BASIC SHAPES:
+- Focus on simple Part.makeXXX() functions
+- Use basic boolean operations if needed
+- Keep it simple and reliable
+- Test each shape creation step"""
+
+        elif complexity_level == "medium":
+            base_prompt += """
+
+COMPLEXITY GUIDANCE - MEDIUM COMPLEXITY:
+- Combine basic shapes with boolean operations
+- Use extrusion and revolution for custom profiles
+- Build step-by-step: create profile, then extrude
+- Add holes and cuts as separate operations"""
+
+        elif complexity_level == "complex":
+            base_prompt += """
+
+COMPLEXITY GUIDANCE - COMPLEX SHAPES:
+- Break down into simpler components
+- Use 2D sketches as building blocks
+- Consider approximations for very complex curves
+- Test each step before proceeding
+- For gears: use simplified tooth profiles or circular approximations
+- For springs: use helical curves or simplified geometry"""
 
         if mode == DeepSeekMode.REASONING:
             base_prompt += (
@@ -277,6 +369,7 @@ Follow this exact pattern for FreeCAD code:
 ```python
 import FreeCAD as App
 import Part
+import math  # Use standard Python math, NOT FreeCAD.Math
 # Other imports as needed
 
 # ALWAYS use the existing active document - NEVER create new ones
@@ -285,12 +378,44 @@ if not doc:
     print("❌ No active document available")
     exit()
 
-# Create your geometry here
-shape = Part.makeBox(10, 10, 10)  # Example
+# BASIC SHAPES (most reliable):
+# Cylinder: Part.makeCylinder(radius, height)
+cylinder_shape = Part.makeCylinder(10, 20)
+
+# Box: Part.makeBox(length, width, height)
+box_shape = Part.makeBox(10, 10, 10)
+
+# Sphere: Part.makeSphere(radius)
+sphere_shape = Part.makeSphere(10)
+
+# Cone: Part.makeCone(radius1, radius2, height)
+cone_shape = Part.makeCone(5, 10, 20)
+
+# 2D SHAPES (for complex geometries):
+# Circle: Part.makeCircle(radius) - simple form
+circle = Part.makeCircle(10)
+
+# Circle with position: Part.makeCircle(radius, center_vector)
+circle_pos = Part.makeCircle(5, App.Vector(10, 0, 0))
+
+# COMPLEX SHAPES - Build step by step:
+# 1. Create 2D profile
+circle = Part.makeCircle(10)
+wire = Part.Wire([circle])
+face = Part.Face(wire)
+
+# 2. Extrude to 3D
+solid = face.extrude(App.Vector(0, 0, 20))
+
+# BOOLEAN OPERATIONS:
+# Cut: shape1.cut(shape2)
+box = Part.makeBox(20, 20, 20)
+hole = Part.makeCylinder(5, 25)
+result = box.cut(hole)
 
 # Add object to the existing document
 obj = doc.addObject("Part::Feature", "YourObjectName")
-obj.Shape = shape
+obj.Shape = solid  # or any shape variable
 
 # Set placement if needed
 obj.Placement = App.Placement(App.Vector(0, 0, 0), App.Rotation())
@@ -298,15 +423,34 @@ obj.Placement = App.Placement(App.Vector(0, 0, 0), App.Rotation())
 # Handle ViewObject safely (may not exist in headless mode)
 try:
     if hasattr(obj, 'ViewObject') and obj.ViewObject:
-        obj.ViewObject.ShapeColor = (0.0, 1.0, 0.0)  # Optional coloring
+        obj.ViewObject.ShapeColor = (0.0, 1.0, 0.0)
 except Exception:
     pass  # Ignore ViewObject errors in headless mode
 
 # ALWAYS recompute after creating objects
 doc.recompute()
 
-print("✅ Object created successfully!")
+print(f"✅ {obj.Label} created successfully!")
 ```
+
+IMPORTANT API USAGE:
+- Part.makeCylinder(radius, height) - NOT makeCylinder(radius, height, vector)
+- Part.makeBox(length, width, height) - NOT makeBox(length, width, height, vector)
+- Part.makeCircle(radius) for simple circles - NO keyword arguments
+- Use standard Python math module: math.pi, math.sin(), math.cos(), math.sqrt()
+- NEVER use FreeCAD.Math - it doesn't exist, use standard Python math
+- For complex shapes: build 2D profile first, then extrude/revolve
+- Boolean operations: shape1.cut(shape2), shape1.fuse(shape2), shape1.common(shape2)
+- Always use try/except blocks for complex operations
+- Test with simple shapes first, then build complexity
+
+COMMON ERROR PATTERNS TO AVOID:
+❌ Part.makeCircle(radius=10) - NO keyword arguments
+✅ Part.makeCircle(10) - Positional arguments only
+❌ FreeCAD.Math.pi - Does not exist
+✅ math.pi - Use standard Python math
+❌ Creating new documents with App.newDocument()
+✅ Using existing App.ActiveDocument
 
 OUTPUT FORMAT:
 1. Brief analysis of the requirements
