@@ -2,9 +2,13 @@ import json
 import os
 import sys
 
-# Add FreeCAD paths
-sys.path.append("/home/vansh5632/Downloads/squashfs-root/usr/lib/")
-sys.path.append("/home/vansh5632/Downloads/squashfs-root/usr/Mod")
+from .path_resolver import setup_freecad_paths
+
+# Setup FreeCAD paths from environment/config
+try:
+    setup_freecad_paths()
+except Exception as e:
+    print(f"Warning: Could not setup FreeCAD paths: {e}")
 
 try:
     import FreeCAD
@@ -105,8 +109,13 @@ class FreeCADStateAnalyzer:
 
         analysis_script = f"""
 import sys
-sys.path.append("/home/vansh5632/Downloads/squashfs-root/usr/lib/")
-sys.path.append("/home/vansh5632/Downloads/squashfs-root/usr/Mod")
+
+# Setup FreeCAD paths dynamically
+try:
+    from ai_designer.freecad.path_resolver import setup_freecad_paths
+    setup_freecad_paths()
+except Exception as e:
+    print(f"Warning: Could not setup FreeCAD paths: {{e}}")
 
 import FreeCAD
 import Part
