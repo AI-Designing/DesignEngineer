@@ -665,10 +665,9 @@ class EnhancedStateLLMIntegration(StateLLMIntegration):
         self.llm_feedback_history = []
         self.complexity_progression = []
 
-        # Configuration with API key
-        self.api_key = "AIzaSyCWUpvNYmalx0whFyG6eIIcSY__ioMSZEc"
-        if self.llm_client and hasattr(self.llm_client, "set_api_key"):
-            self.llm_client.set_api_key(self.api_key)
+        # Configuration with API key - use SecureConfig for secure key management
+        # API key is now managed through .env file via SecureConfig
+        # The LLM client already has the API key from its initialization
 
     def process_complex_shape_request(
         self, user_input: str, session_id: str = None
