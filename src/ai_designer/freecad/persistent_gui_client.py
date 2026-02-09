@@ -431,17 +431,35 @@ class SimpleFreeCADSocketServer:
                 print(f"📄 Using existing document: {{doc.Name}}")
 
             # Execute the script in the context of the existing document
-            # Make sure we pass the correct document reference
-            globals_dict = {{
-                'FreeCAD': FreeCAD,
-                'doc': doc,
-                'App': FreeCAD,
-                'Gui': FreeCADGui if 'FreeCADGui' in globals() else None
-            }}
+            # Use safe sandbox with validation (replaces dangerous exec())
+            try:
+                from ai_designer.sandbox import ScriptSandbox
 
-            exec(script, globals_dict)
+                # Create sandbox for FreeCAD scripts
+                sandbox = ScriptSandbox(
+                    timeout=60,
+                    strict_validation=True,
+                    use_subprocess=False  # GUI requires inline execution
+                )
 
-            # Always recompute the SAME document (not create new one)
+                # Prepare FreeCAD environment
+                freecad_env = {
+                    'FreeCAD': FreeCAD,
+                    'doc': doc,
+                    'App': FreeCAD,
+                    'Gui': FreeCADGui if 'FreeCADGui' in globals() else None
+                }
+
+                # Execute validated script with sandbox
+                result = sandbox.execute_freecad_script(script, freecad_env)
+
+                if not result.success:
+                    raise ValueError(f"Script execution failed: {result.error}")
+
+            except Exception as e:
+                import logging
+                logging.error(f"Script execution failed: {e}")
+                raise ValueError(f"Script error: {e}")
             doc.recompute()
             FreeCADGui.updateGui()
 
@@ -538,8 +556,8 @@ server_started = socket_server.start_server()
 
 if server_started:
     print("✅ Persistent FreeCAD GUI ready for real-time updates")
-    print(f"🔗 Session ID: {{SESSION_ID}}")
-    print(f"� Socket server listening on port {{COMMUNICATION_PORT}}")
+    print(f"🔗 Session ID: {SESSION_ID}")
+    print(f"📡 Socket server listening on port {COMMUNICATION_PORT}")
     print("�🖥️  GUI will stay open and update automatically")
 else:
     print("❌ Failed to start socket server")
