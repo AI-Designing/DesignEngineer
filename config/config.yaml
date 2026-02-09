@@ -3,13 +3,23 @@
 freecad_api_url: "http://localhost:8080"
 
 # FreeCAD Installation Configuration
+# Priority: FREECAD_PATH env var > appimage_path > lib_path/mod_path > auto-detect
 freecad:
-  # Path to FreeCAD AppImage or installation
+  # Path to FreeCAD AppImage file
+  # Example: "/home/user/Downloads/FreeCAD_1.0.1-conda-Linux-x86_64-py311.AppImage"
   # Can be overridden by FREECAD_PATH environment variable
   appimage_path: "/home/vansh5632/Downloads/FreeCAD_1.0.1-conda-Linux-x86_64-py311.AppImage"
-  # These paths are auto-detected from AppImage, only set if custom installation
+
+  # Alternative: Explicit library and module paths (for custom installations)
+  # These are auto-detected from AppImage, only set for non-standard installs
+  # Example lib_path: "/usr/lib/freecad/lib"
+  # Example mod_path: "/usr/lib/freecad/Mod"
   lib_path: ""
   mod_path: ""
+
+  # Execution mode: "appimage", "subprocess", or "direct"
+  # Auto-detected based on installation type
+  execution_mode: "auto"
 
 # DeepSeek R1 Local Configuration
 deepseek:
