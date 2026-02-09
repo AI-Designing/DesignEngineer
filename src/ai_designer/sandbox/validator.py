@@ -8,7 +8,11 @@ before execution to prevent dangerous code from running.
 import ast
 from typing import List, Set
 
+from ..core.exceptions import ScriptValidationError
+from ..core.logging_config import get_logger
 from .result import ValidationResult
+
+logger = get_logger(__name__)
 
 
 class ASTValidator:
