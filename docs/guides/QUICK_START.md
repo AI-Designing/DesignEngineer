@@ -18,9 +18,9 @@ brew install redis            # macOS
 ### Environment Setup
 ```bash
 # Set your LLM API key
-export GOOGLE_API_KEY="your-google-api-key"
+export GOOGLE_API_KEY="your-google-api-key"  # pragma: allowlist secret
 # or
-export OPENAI_API_KEY="your-openai-api-key"
+export OPENAI_API_KEY="your-openai-api-key"  # pragma: allowlist secret
 
 # Install Python dependencies
 pip install -e .[dev]
