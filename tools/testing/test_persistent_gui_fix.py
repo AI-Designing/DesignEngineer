@@ -22,9 +22,11 @@ def test_persistent_gui_steps():
     print("=" * 50)
 
     # Create CLI with persistent GUI enabled
+    import os
+
     cli = FreeCADCLI(
         llm_provider="google",
-        llm_api_key="AIzaSyCWUpvNYmalx0whFyG6eIIcSY__ioMSZEc",
+        llm_api_key=os.getenv("GOOGLE_API_KEY", "test-key-from-env"),
         enable_persistent_gui=True,
         enable_websocket=True,
     )

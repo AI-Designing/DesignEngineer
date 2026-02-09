@@ -22,21 +22,33 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "Flask>=2.0.1",
+    # Core frameworks
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
     "redis>=4.0.2",
-    "requests>=2.25.1",
-    "openai>=0.11.3",
-    "numpy>=1.21.0",
-    "PyYAML>=6.0",
-    "langchain",
-    "google-generativeai",
-    "websockets>=10.0",
-    "fastapi>=0.68.0",
-    "uvicorn>=0.15.0",
-    "torch>=1.9.0",
-    "transformers>=4.20.0",
-    "accelerate>=0.20.0",
-    "pydantic>=1.8.0",
+
+    # LLM providers and tools
+    "litellm>=1.17.0",
+    "openai>=1.3.0",
+    "google-generativeai>=0.3.0",
+    "langchain-core>=0.1.0",
+
+    # HTTP and WebSocket
+    "httpx>=0.25.0",
+    "websockets>=12.0",
+    "requests>=2.31.0",
+
+    # Data validation and parsing
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "python-dotenv>=1.0.0",
+
+    # State management and workflows
+    "networkx>=3.2.0",
+
+    # Utilities
+    "numpy>=1.24.0",
+    "PyYAML>=6.0.1",
     "structlog>=23.1.0",
     "colorama>=0.4.6",
 ]
@@ -103,7 +115,7 @@ profile = "black"
 multi_line_output = 3
 line_length = 88
 known_first_party = ["ai_designer"]
-known_third_party = ["flask", "redis", "openai", "numpy", "yaml", "websockets", "fastapi", "uvicorn", "torch", "transformers"]
+known_third_party = ["fastapi", "redis", "openai", "litellm", "numpy", "yaml", "websockets", "uvicorn", "httpx", "pydantic", "networkx", "structlog"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
