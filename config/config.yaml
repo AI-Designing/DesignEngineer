@@ -1,5 +1,15 @@
-api_key: "your_api_key_here"
+# API keys are now managed via .env file for security
+# See .env.example for required environment variables
 freecad_api_url: "http://localhost:8080"
+
+# FreeCAD Installation Configuration
+freecad:
+  # Path to FreeCAD AppImage or installation
+  # Can be overridden by FREECAD_PATH environment variable
+  appimage_path: "/home/vansh5632/Downloads/FreeCAD_1.0.1-conda-Linux-x86_64-py311.AppImage"
+  # These paths are auto-detected from AppImage, only set if custom installation
+  lib_path: ""
+  mod_path: ""
 
 # DeepSeek R1 Local Configuration
 deepseek:

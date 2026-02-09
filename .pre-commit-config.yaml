@@ -1,17 +1,26 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v4.5.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+        args: ['--maxkb=1000']
       - id: check-merge-conflict
       - id: debug-statements
       - id: check-docstring-first
       - id: check-json
       - id: check-toml
       - id: mixed-line-ending
+      - id: detect-private-key
+
+  # Secret detection - CRITICAL for security
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--exclude-files', '.secrets.baseline']
 
   - repo: https://github.com/psf/black
     rev: 23.9.1
