@@ -4,6 +4,13 @@ import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
+
+from ..core.sandbox import (
+    SafeScriptExecutor,
+    ScriptExecutionError,
+    ScriptValidationError,
+)
 
 # Add FreeCAD paths
 sys.path.append("/home/vansh5632/Downloads/squashfs-root/usr/lib/")
@@ -66,28 +73,51 @@ print("SUCCESS: FreeCAD connection established")
             return self._execute_via_subprocess(command)
 
     def _execute_direct(self, command):
-        """Execute command directly using imported FreeCAD"""
+        """Execute command using safe sandbox (no direct exec())"""
+        from ..sandbox import ScriptSandbox
+
         if not self.connection:
             raise ConnectionError("Not connected to FreeCAD")
 
         try:
-            # Create a local environment for command execution
-            local_env = {
+            # Create sandbox with FreeCAD environment
+            sandbox = ScriptSandbox(
+                timeout=60,
+                strict_validation=True,
+                use_subprocess=False,  # FreeCAD needs inline execution
+            )
+
+            # Prepare FreeCAD environment
+            freecad_env = {
                 "FreeCAD": FreeCAD,
                 "Part": Part,
-                "Mesh": Mesh,
                 "doc": self.document,
                 "App": FreeCAD,
             }
 
-            # Execute the command
-            exec(command, local_env)
+            # Execute script safely with validation
+            result = sandbox.execute_freecad_script(
+                script=command, freecad_env=freecad_env
+            )
 
-            # Recompute the document
-            if self.document:
-                self.document.recompute()
+            if result.success:
+                return {
+                    "status": "success",
+                    "message": "Command executed successfully",
+                    "output": result.output,
+                    "execution_time": result.execution_time,
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": result.error_message or "Execution failed",
+                    "stderr": result.stderr,
+                }
 
-            return {"status": "success", "message": f"Command executed: {command}"}
+        except ScriptValidationError as e:
+            return {"status": "error", "message": f"Script validation failed: {e}"}
+        except ScriptExecutionError as e:
+            return {"status": "error", "message": f"Script execution failed: {e}"}
         except Exception as e:
             return {"status": "error", "message": f"Failed to execute command: {e}"}
 
