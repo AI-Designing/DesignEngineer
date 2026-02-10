@@ -111,7 +111,7 @@ class TestOrchestratorAgentExecution:
         """Create a simple task graph."""
         request_id = uuid4()
         graph = TaskGraph(request_id=request_id)
-        
+
         task = TaskNode(
             task_id="task_1",
             operation_type="create_box",
@@ -119,7 +119,7 @@ class TestOrchestratorAgentExecution:
             parameters={"length": 10.0, "width": 10.0, "height": 10.0},
         )
         graph.add_task(task)
-        
+
         return graph
 
     @pytest.fixture
@@ -153,7 +153,7 @@ doc.recompute()
         # Setup mocks
         mock_planner.plan = AsyncMock(return_value=simple_task_graph)
         mock_generator.generate = AsyncMock(return_value=sample_scripts)
-        
+
         validation = ValidationResult(
             request_id=str(design_request.request_id),
             is_valid=True,
@@ -169,7 +169,7 @@ doc.recompute()
         assert state.is_valid is True
         assert state.current_iteration == 1
         assert len(state.iterations) == 3  # Plan, Generate, Validate
-        
+
         mock_planner.plan.assert_called_once()
         mock_generator.generate.assert_called_once()
         mock_validator.validate.assert_called_once()
@@ -217,7 +217,7 @@ doc.recompute()
         assert state.is_valid is True
         assert state.current_iteration == 2
         assert len(state.iterations) == 6  # 2 * (Plan, Generate, Validate)
-        
+
         mock_planner.plan.assert_called_once()
         mock_planner.replan.assert_called_once()
         assert mock_generator.generate.call_count == 2
@@ -248,7 +248,7 @@ doc.recompute()
         validation.overall_score = 0.7
         validation.should_refine = True
         validation.refinement_suggestions = ["Improve design"]
-        
+
         mock_validator.validate = AsyncMock(return_value=validation)
 
         # Execute
@@ -323,7 +323,7 @@ doc.recompute()
         )
         validation.overall_score = 0.3
         validation.should_refine = False  # Too low to refine
-        
+
         mock_validator.validate = AsyncMock(return_value=validation)
 
         # Execute
@@ -350,7 +350,7 @@ doc.recompute()
         # Setup mocks
         mock_planner.plan = AsyncMock(return_value=simple_task_graph)
         mock_generator.generate = AsyncMock(return_value=sample_scripts)
-        
+
         validation = ValidationResult(
             request_id=str(design_request.request_id),
             is_valid=True,
@@ -367,12 +367,14 @@ doc.recompute()
         mock_callback = AsyncMock(return_value=execution_result)
 
         # Execute
-        state = await orchestrator.execute(design_request, execution_callback=mock_callback)
+        state = await orchestrator.execute(
+            design_request, execution_callback=mock_callback
+        )
 
         # Verify
         assert state.status == ExecutionStatus.COMPLETED
         mock_callback.assert_called_once_with(sample_scripts)
-        
+
         # Validator should receive execution result
         call_args = mock_validator.validate.call_args
         assert call_args[0][3] == execution_result  # 4th positional arg
@@ -392,7 +394,7 @@ class TestOrchestratorAgentHelpers:
         mock_planner = MagicMock(spec=PlannerAgent)
         mock_generator = MagicMock(spec=GeneratorAgent)
         mock_validator = MagicMock(spec=ValidatorAgent)
-        
+
         return OrchestratorAgent(
             llm_provider=mock_provider,
             planner=mock_planner,
@@ -405,11 +407,11 @@ class TestOrchestratorAgentHelpers:
         """Test script execution with successful callback."""
         scripts = {"task_1": "import FreeCAD"}
         result = {"success": True, "object_count": 1}
-        
+
         callback = AsyncMock(return_value=result)
-        
+
         execution_result = await orchestrator._execute_scripts(scripts, callback)
-        
+
         assert execution_result == result
         callback.assert_called_once_with(scripts)
 
@@ -417,11 +419,11 @@ class TestOrchestratorAgentHelpers:
     async def test_execute_scripts_failure(self, orchestrator):
         """Test script execution with failing callback."""
         scripts = {"task_1": "import FreeCAD"}
-        
+
         callback = AsyncMock(side_effect=Exception("Execution failed"))
-        
+
         execution_result = await orchestrator._execute_scripts(scripts, callback)
-        
+
         assert execution_result is not None
         assert "error" in execution_result
         assert execution_result["success"] is False

@@ -8,10 +8,11 @@ This agent manages the complete design pipeline:
 4. Refiner: Iterates until validation passes or max iterations reached
 """
 
-import structlog
 from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
+
+import structlog
 
 from ai_designer.agents.generator import GeneratorAgent
 from ai_designer.agents.planner import PlannerAgent
@@ -35,7 +36,7 @@ logger = get_logger(__name__)
 class OrchestratorAgent:
     """
     Orchestrates the multi-agent design workflow.
-    
+
     Coordinates Planner → Generator → Validator in an iterative loop,
     handling refinement cycles until a valid design is produced or
     maximum iterations are exceeded.
@@ -119,12 +120,12 @@ class OrchestratorAgent:
 
         # Track workflow iterations separately
         workflow_iteration = 0
-        
+
         try:
             # Main workflow loop
             while workflow_iteration < self.max_iterations:
                 workflow_iteration += 1
-                
+
                 logger.info(
                     "Starting iteration",
                     iteration=workflow_iteration,
@@ -144,7 +145,7 @@ class OrchestratorAgent:
 
                 # Step 2: Generation
                 scripts = await self._generate(state, request, task_graph)
-                
+
                 if not scripts:
                     state.mark_failed("Generation failed - no scripts produced")
                     break
@@ -163,7 +164,7 @@ class OrchestratorAgent:
 
                 # Update current iteration to match workflow iteration
                 state.current_iteration = workflow_iteration
-                
+
                 # Check validation outcome
                 if validation.is_valid:
                     # Success!
@@ -216,7 +217,7 @@ class OrchestratorAgent:
         # Ensure current_iteration reflects final count
         if workflow_iteration > 0:
             state.current_iteration = workflow_iteration
-            
+
         logger.info(
             "Design workflow completed",
             request_id=str(request.request_id),
@@ -288,7 +289,7 @@ class OrchestratorAgent:
             # Get previous validation feedback
             previous_validation = state.validation_results
             feedback = []
-            
+
             if previous_validation:
                 if "refinement_suggestions" in previous_validation:
                     feedback = previous_validation["refinement_suggestions"]
@@ -370,23 +371,23 @@ class OrchestratorAgent:
     ) -> Optional[Dict[str, Any]]:
         """
         Execute FreeCAD scripts using provided callback.
-        
+
         Args:
             scripts: Generated FreeCAD scripts
             callback: Execution callback function
-            
+
         Returns:
             Execution results or None if execution fails
         """
         try:
             logger.info("Executing FreeCAD scripts", script_count=len(scripts))
-            
+
             # Call the execution callback
             result = await callback(scripts)
-            
+
             logger.info("Script execution completed")
             return result
-            
+
         except Exception as e:
             logger.error("Script execution failed", error=str(e))
             return {"error": str(e), "success": False}
@@ -440,9 +441,10 @@ class OrchestratorAgent:
             logger.error("Validation failed", error=str(e))
             iteration.errors.append(f"Validation error: {str(e)}")
             iteration.completed_at = state.updated_at
-            
+
             # Return a failed validation
             from ai_designer.schemas.validation import ValidationResult
+
             return ValidationResult(
                 request_id=str(request.request_id),
                 is_valid=False,
