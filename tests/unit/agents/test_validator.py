@@ -231,7 +231,7 @@ doc.recompute()
             "has_invalid_faces": True,  # Has some geometric issues
             "has_self_intersections": False,
         }
-        
+
         # Lower quality review
         poor_review = {
             "overall_assessment": "Fair quality, needs improvement",
@@ -424,7 +424,10 @@ class TestValidatorAgentSemantic:
         graph = TaskGraph(request_id=uuid4())
         graph.add_task(
             TaskNode(
-                task_id="t1", operation_type="create_box", description="Box", parameters={}
+                task_id="t1",
+                operation_type="create_box",
+                description="Box",
+                parameters={},
             )
         )
         graph.add_task(
@@ -465,12 +468,18 @@ class TestValidatorAgentSemantic:
         graph = TaskGraph(request_id=uuid4())
         graph.add_task(
             TaskNode(
-                task_id="t1", operation_type="create_box", description="Box", parameters={}
+                task_id="t1",
+                operation_type="create_box",
+                description="Box",
+                parameters={},
             )
         )
         graph.add_task(
             TaskNode(
-                task_id="t2", operation_type="fillet", description="Fillet", parameters={}
+                task_id="t2",
+                operation_type="fillet",
+                description="Fillet",
+                parameters={},
             )
         )
 
@@ -514,7 +523,9 @@ class TestValidatorAgentHelpers:
 
     def test_parse_review_response_with_markdown(self, validator):
         """Test parsing JSON wrapped in markdown."""
-        response = '```json\n{"quality_score": 0.9, "overall_assessment": "Excellent"}\n```'
+        response = (
+            '```json\n{"quality_score": 0.9, "overall_assessment": "Excellent"}\n```'
+        )
 
         parsed = validator._parse_review_response(response)
 

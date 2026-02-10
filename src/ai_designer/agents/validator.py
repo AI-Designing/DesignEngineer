@@ -342,9 +342,7 @@ Review the following FreeCAD design:"""
         logger.info("Performing semantic validation")
 
         # Extract expected features from task graph
-        expected_features = [
-            task.operation_type for task in task_graph.nodes.values()
-        ]
+        expected_features = [task.operation_type for task in task_graph.nodes.values()]
 
         # Detect features in generated scripts
         detected_features = []
@@ -366,7 +364,9 @@ Review the following FreeCAD design:"""
 
         # Check requirements matching
         requirements_met = [f for f in expected_features if f in detected_features]
-        requirements_missing = [f for f in expected_features if f not in detected_features]
+        requirements_missing = [
+            f for f in expected_features if f not in detected_features
+        ]
 
         # Calculate confidence score based on feature matching
         if expected_features:
@@ -514,7 +514,9 @@ Review the following FreeCAD design:"""
             if execution_result.get("error"):
                 context_parts.append(f"Error: {execution_result['error']}")
             else:
-                context_parts.append(f"Objects created: {execution_result.get('object_count', 0)}")
+                context_parts.append(
+                    f"Objects created: {execution_result.get('object_count', 0)}"
+                )
                 context_parts.append(
                     f"Total volume: {execution_result.get('total_volume', 0)} mm³"
                 )
@@ -586,9 +588,7 @@ Review the following FreeCAD design:"""
 
         return passes
 
-    def _generate_refinement_suggestions(
-        self, result: ValidationResult
-    ) -> List[str]:
+    def _generate_refinement_suggestions(self, result: ValidationResult) -> List[str]:
         """Generate specific refinement suggestions.
 
         Args:
