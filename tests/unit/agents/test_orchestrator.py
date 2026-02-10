@@ -427,3 +427,68 @@ class TestOrchestratorAgentHelpers:
         assert execution_result is not None
         assert "error" in execution_result
         assert execution_result["success"] is False
+
+    @pytest.mark.asyncio
+    async def test_execute_with_executor_integration(self):
+        """Test orchestrator with FreeCADExecutor integration."""
+        from ai_designer.agents.executor import FreeCADExecutor
+
+        mock_provider = MagicMock(spec=UnifiedLLMProvider)
+
+        # Mock agents
+        mock_planner = AsyncMock(spec=PlannerAgent)
+        mock_generator = AsyncMock(spec=GeneratorAgent)
+        mock_validator = AsyncMock(spec=ValidatorAgent)
+
+        # Setup task graph fixture
+        task_graph = TaskGraph(
+            request_id=uuid4(),
+            nodes={
+                "task_1": TaskNode(
+                    task_id="task_1",
+                    description="Create box",
+                    operation_type="create_primitive",
+                )
+            },
+            edges=[],
+        )
+
+        # Setup mock responses
+        mock_planner.plan.return_value = task_graph
+        mock_generator.generate.return_value = {
+            "task_1": "box = Part.makeBox(10, 10, 10)\nPart.show(box)"
+        }
+        mock_validator.validate.return_value = ValidationResult(
+            request_id=str(uuid4()), is_valid=True, overall_score=0.95
+        )
+
+        # Create orchestrator with real executor
+        orchestrator = OrchestratorAgent(
+            llm_provider=mock_provider,
+            planner=mock_planner,
+            generator=mock_generator,
+            validator=mock_validator,
+            max_iterations=2,
+        )
+
+        # Note: We don't actually execute FreeCAD (needs real FreeCAD install)
+        # Instead, we mock the executor's execute method
+        executor = FreeCADExecutor(timeout=30, save_outputs=False)
+        executor.execute = AsyncMock(
+            return_value={
+                "success": True,
+                "executed_count": 1,
+                "created_objects": ["Box"],
+                "errors": [],
+            }
+        )
+
+        request = DesignRequest(user_prompt="Create a simple box")
+
+        result = await orchestrator.execute(
+            request=request, execution_callback=executor.execute
+        )
+
+        assert result.status == ExecutionStatus.COMPLETED
+        assert result.is_valid is True
+        executor.execute.assert_called_once()
