@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     Application lifespan context manager.
-    
+
     Handles startup and shutdown operations:
     - Initialize connections (Redis, etc.)
     - Cleanup on shutdown
@@ -36,9 +36,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting FreeCAD AI Designer API")
     # Startup: Initialize any global resources here
     # (Redis connections, model loading, etc.)
-    
+
     yield
-    
+
     # Shutdown: Cleanup resources
     logger.info("Shutting down FreeCAD AI Designer API")
 
@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     """
     Create and configure the FastAPI application.
-    
+
     Returns:
         Configured FastAPI application instance
     """
@@ -58,7 +58,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         lifespan=lifespan,
     )
-    
+
     # Configure CORS
     app.add_middleware(
         CORSMiddleware,
@@ -67,26 +67,28 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # Add request ID middleware
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
         """Add unique request ID to each request for correlation."""
         request_id = request.headers.get("X-Request-ID", str(uuid4()))
         request.state.request_id = request_id
-        
+
         start_time = time.time()
         response = await call_next(request)
         process_time = time.time() - start_time
-        
+
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Process-Time"] = str(process_time)
-        
+
         return response
-    
+
     # Exception handlers
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ):
         """Handle request validation errors."""
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -96,7 +98,7 @@ def create_app() -> FastAPI:
                 "request_id": getattr(request.state, "request_id", None),
             },
         )
-    
+
     @app.exception_handler(ConfigurationError)
     async def config_exception_handler(request: Request, exc: ConfigurationError):
         """Handle configuration errors."""
@@ -109,7 +111,7 @@ def create_app() -> FastAPI:
                 "request_id": getattr(request.state, "request_id", None),
             },
         )
-    
+
     @app.exception_handler(LLMError)
     async def llm_exception_handler(request: Request, exc: LLMError):
         """Handle LLM provider errors."""
@@ -122,7 +124,7 @@ def create_app() -> FastAPI:
                 "request_id": getattr(request.state, "request_id", None),
             },
         )
-    
+
     @app.exception_handler(FreeCADError)
     async def freecad_exception_handler(request: Request, exc: FreeCADError):
         """Handle FreeCAD execution errors."""
@@ -135,7 +137,7 @@ def create_app() -> FastAPI:
                 "request_id": getattr(request.state, "request_id", None),
             },
         )
-    
+
     @app.exception_handler(AgentError)
     async def agent_exception_handler(request: Request, exc: AgentError):
         """Handle agent execution errors."""
@@ -148,7 +150,7 @@ def create_app() -> FastAPI:
                 "request_id": getattr(request.state, "request_id", None),
             },
         )
-    
+
     @app.exception_handler(Exception)
     async def general_exception_handler(request: Request, exc: Exception):
         """Handle unexpected errors."""
@@ -161,10 +163,10 @@ def create_app() -> FastAPI:
                 "request_id": getattr(request.state, "request_id", None),
             },
         )
-    
+
     # Include routers
     app.include_router(health.router, tags=["Health"])
     app.include_router(design.router, prefix="/api/v1", tags=["Design"])
     app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
-    
+
     return app

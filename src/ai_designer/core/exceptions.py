@@ -103,6 +103,25 @@ class LLMAPIKeyError(LLMError):
     pass
 
 
+# Agent Errors
+class AgentError(AIDesignerError):
+    """Base class for agent-related errors"""
+
+    pass
+
+
+class AgentExecutionError(AgentError):
+    """Raised when agent execution fails"""
+
+    pass
+
+
+class AgentValidationError(AgentError):
+    """Raised when agent validation fails"""
+
+    pass
+
+
 # State Management Errors
 class StateError(AIDesignerError):
     """Base class for state management errors"""

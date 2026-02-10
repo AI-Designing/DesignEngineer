@@ -4,10 +4,10 @@ Design creation and management endpoints.
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional
-from uuid import uuid4, UUID
+from typing import Any, Dict, Optional
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ai_designer.agents.executor import FreeCADExecutor
@@ -23,13 +23,16 @@ router = APIRouter()
 # Request/Response schemas
 class DesignRequest(BaseModel):
     """Request to create a new design."""
-    
+
     prompt: str = Field(
         ...,
         min_length=10,
         max_length=5000,
         description="Natural language description of the design to create",
-        examples=["Create a 10x10x10mm cube", "Design a gear wheel with 20 teeth and 50mm diameter"],
+        examples=[
+            "Create a 10x10x10mm cube",
+            "Design a gear wheel with 20 teeth and 50mm diameter",
+        ],
     )
     max_iterations: int = Field(
         default=5,
@@ -45,7 +48,7 @@ class DesignRequest(BaseModel):
 
 class DesignResponse(BaseModel):
     """Response after submitting a design request."""
-    
+
     request_id: str = Field(..., description="Unique design request ID")
     status: ExecutionStatus = Field(..., description="Current design status")
     message: str = Field(..., description="Human-readable status message")
@@ -54,7 +57,7 @@ class DesignResponse(BaseModel):
 
 class DesignStatusResponse(BaseModel):
     """Detailed status of a design request."""
-    
+
     request_id: str
     status: ExecutionStatus
     prompt: str
@@ -71,7 +74,7 @@ class DesignStatusResponse(BaseModel):
 
 class RefinementRequest(BaseModel):
     """Request to refine a design based on feedback."""
-    
+
     feedback: str = Field(
         ...,
         min_length=10,
@@ -85,7 +88,9 @@ class RefinementRequest(BaseModel):
 _designs: Dict[str, DesignState] = {}
 
 
-@router.post("/design", status_code=status.HTTP_202_ACCEPTED, response_model=DesignResponse)
+@router.post(
+    "/design", status_code=status.HTTP_202_ACCEPTED, response_model=DesignResponse
+)
 async def create_design(
     request: DesignRequest,
     background_tasks: BackgroundTasks,
@@ -94,36 +99,36 @@ async def create_design(
 ) -> DesignResponse:
     """
     Submit a new design request.
-    
+
     The design pipeline runs asynchronously:
     1. Planner Agent: Create task graph
     2. Generator Agent: Generate FreeCAD scripts
     3. Executor: Run scripts (if enabled)
     4. Validator Agent: Check results
     5. Iterate if needed (up to max_iterations)
-    
+
     Args:
         request: Design parameters
         background_tasks: FastAPI background tasks
         orchestrator: Orchestrator agent
         executor: FreeCAD executor
-    
+
     Returns:
         Design request ID and initial status
     """
-    request_id = UUID(str(uuid4()))
+    request_id = str(uuid4())
     now = datetime.utcnow()
-    
-    # Create initial design state  
+
+    # Create initial design state
     design_state = DesignState(
         request_id=request_id,
         user_prompt=request.prompt,
         max_iterations=request.max_iterations,
     )
-    
+
     # Store in temporary storage
     _designs[request_id] = design_state
-    
+
     # Add background task to process the design
     background_tasks.add_task(
         _process_design,
@@ -132,11 +137,11 @@ async def create_design(
         orchestrator,
         executor,
     )
-    
+
     logger.info(f"Created design request {request_id}: {request.prompt[:50]}...")
-    
+
     return DesignResponse(
-        request_id=str(request_id),
+        request_id=request_id,
         status=ExecutionStatus.PENDING,
         message="Design request accepted and queued for processing",
         created_at=now,
@@ -147,40 +152,40 @@ async def create_design(
 async def get_design_status(request_id: str) -> DesignStatusResponse:
     """
     Get the current status of a design request.
-    
+
     Args:
         request_id: Design request ID
-    
+
     Returns:
         Detailed design status and results
-    
+
     Raises:
         HTTPException: If design request not found
     """
     design_state = _designs.get(request_id)
-    
+
     if not design_state:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Design request {request_id} not found",
         )
-    
+
     # Extract relevant information
     plan_summary = None
     if design_state.task_graph_id:
         plan_summary = f"Task graph: {design_state.task_graph_id}"
-    
+
     validation_score = None
     if design_state.validation_results:
         validation_score = design_state.validation_results.get("overall_score")
-    
+
     execution_result = None
     if design_state.freecad_script:
         execution_result = {
             "script_generated": True,
             "validation_status": design_state.is_valid,
         }
-    
+
     return DesignStatusResponse(
         request_id=str(design_state.request_id),
         status=design_state.status,
@@ -207,36 +212,38 @@ async def refine_design(
 ) -> Dict[str, str]:
     """
     Submit refinement feedback for a design.
-    
+
     Args:
         request_id: Design request ID
         refinement: Refinement feedback
         background_tasks: FastAPI background tasks
         orchestrator: Orchestrator agent
         executor: FreeCAD executor
-    
+
     Returns:
         Acknowledgment message
-    
+
     Raises:
         HTTPException: If design not found or cannot be refined
     """
     design_state = _designs.get(request_id)
-    
+
     if not design_state:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Design request {request_id} not found",
         )
-    
+
     if design_state.status not in [ExecutionStatus.COMPLETED]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Design must be completed before refinement (current status: {design_state.status})",
         )
-    
+
     # Update prompt with refinement feedback
-    design_state.user_prompt = f"{design_state.user_prompt}\n\nRefinement: {refinement.feedback}"
+    design_state.user_prompt = (
+        f"{design_state.user_prompt}\n\nRefinement: {refinement.feedback}"
+    )
     design_state.status = ExecutionStatus.REFINING
     design_state.updated_at = datetime.utcnow()
     # Add background task to reprocess
@@ -247,9 +254,9 @@ async def refine_design(
         orchestrator,
         executor,
     )
-    
+
     logger.info(f"Refinement requested for {request_id}: {refinement.feedback[:50]}...")
-    
+
     return {"message": "Refinement request accepted", "request_id": request_id}
 
 
@@ -257,10 +264,10 @@ async def refine_design(
 async def delete_design(request_id: str) -> None:
     """
     Delete a design request and its artifacts.
-    
+
     Args:
         request_id: Design request ID
-    
+
     Raises:
         HTTPException: If design not found
     """
@@ -269,10 +276,10 @@ async def delete_design(request_id: str) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Design request {request_id} not found",
         )
-    
+
     # TODO: Also delete from Redis and clean up files
     del _designs[request_id]
-    
+
     logger.info(f"Deleted design request {request_id}")
 
 
@@ -284,7 +291,7 @@ async def _process_design(
 ) -> None:
     """
     Background task to process a design request through the agent pipeline.
-    
+
     Args:
         request_id: Design request ID
         enable_execution: Whether to execute scripts
@@ -295,32 +302,34 @@ async def _process_design(
     if not design_state:
         logger.error(f"Design {request_id} not found in processing")
         return
-    
+
     try:
         logger.info(f"Processing design {request_id} with orchestrator...")
-        
+
         # Prepare execution callback if enabled
         execution_callback = None
         if enable_execution:
+
             async def exec_callback(scripts: Dict[str, Any]) -> Dict[str, Any]:
                 """Wrapper to call executor with proper interface."""
                 return await executor.execute(
                     scripts=scripts,
                     document_name=f"design_{request_id}",
                 )
+
             execution_callback = exec_callback
-        
+
         # Run orchestrator pipeline
         result_state = await orchestrator.execute(
             request=design_state,
             execution_callback=execution_callback,
         )
-        
+
         # Update stored state with results
         _designs[request_id] = result_state
-        
+
         logger.info(f"Design {request_id} completed with status: {result_state.status}")
-        
+
     except Exception as e:
         logger.exception(f"Error processing design {request_id}: {e}")
         design_state.mark_failed(str(e))

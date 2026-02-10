@@ -3,7 +3,7 @@ Health check endpoints for monitoring and orchestration.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
 
 from fastapi import APIRouter, status
 
@@ -16,7 +16,7 @@ router = APIRouter()
 async def health_check() -> Dict[str, Any]:
     """
     Basic health check endpoint.
-    
+
     Returns:
         Health status information
     """
@@ -31,24 +31,24 @@ async def health_check() -> Dict[str, Any]:
 async def readiness_check() -> Dict[str, Any]:
     """
     Readiness check for Kubernetes/orchestration.
-    
+
     Verifies that all critical dependencies are available:
     - Redis connection
     - LLM provider access (optional, can degrade gracefully)
     - FreeCAD availability
-    
+
     Returns:
         Readiness status with component checks
     """
     checks = {
         "redis": "unknown",  # TODO: Add actual Redis health check
-        "llm": "unknown",    # TODO: Add LLM provider ping
-        "freecad": "unknown", # TODO: Add FreeCAD availability check
+        "llm": "unknown",  # TODO: Add LLM provider ping
+        "freecad": "unknown",  # TODO: Add FreeCAD availability check
     }
-    
+
     # For now, return ready (implement actual checks in deps.py)
     overall_status = "ready"
-    
+
     return {
         "status": overall_status,
         "service": "freecad-ai-designer",
