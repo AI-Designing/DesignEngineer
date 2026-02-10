@@ -62,7 +62,9 @@ class TestPlannerAgentPlanning:
     @pytest.fixture
     def mock_provider(self):
         """Create a mock LLM provider."""
-        return MagicMock(spec=UnifiedLLMProvider)
+        mock = MagicMock(spec=UnifiedLLMProvider)
+        mock.default_model = "gpt-4o"
+        return mock
 
     @pytest.fixture
     def planner(self, mock_provider):
@@ -72,7 +74,7 @@ class TestPlannerAgentPlanning:
     @pytest.fixture
     def design_request(self):
         """Create a sample design request."""
-        return DesignRequest(prompt="Create a box 10x10x10mm with a 2mm hole")
+        return DesignRequest(user_prompt="Create a box 10x10x10mm with a 2mm hole")
 
     @pytest.fixture
     def valid_llm_response(self):
@@ -113,6 +115,7 @@ class TestPlannerAgentPlanning:
         return LLMResponse(
             content=json.dumps(response_json),
             model="gpt-4",
+            provider="openai",
             usage={"prompt_tokens": 100, "completion_tokens": 200, "total_tokens": 300},
             finish_reason="stop",
         )
@@ -128,24 +131,25 @@ class TestPlannerAgentPlanning:
 
         # Verify task graph structure
         assert isinstance(task_graph, TaskGraph)
-        assert len(task_graph.tasks) == 3
-        assert len(task_graph.dependencies) == 2
+        assert len(task_graph.nodes) == 3
+        assert len(task_graph.edges) == 2
 
         # Verify tasks
-        assert "task_1" in task_graph.tasks
-        assert "task_2" in task_graph.tasks
-        assert "task_3" in task_graph.tasks
+        assert "task_1" in task_graph.nodes
+        assert "task_2" in task_graph.nodes
+        assert "task_3" in task_graph.nodes
 
-        task_1 = task_graph.tasks["task_1"]
-        assert task_1.operation == "create_box"
+        task_1 = task_graph.nodes["task_1"]
+        assert task_1.operation_type == "create_box"
         assert task_1.parameters == {"length": 10.0, "width": 10.0, "height": 10.0}
         assert task_1.status == TaskStatus.PENDING
 
         # Verify dependencies
         ready_tasks = task_graph.get_ready_tasks()
-        assert "task_1" in ready_tasks
-        assert "task_2" in ready_tasks
-        assert "task_3" not in ready_tasks  # Has dependencies
+        ready_task_ids = [task.task_id for task in ready_tasks]
+        assert "task_1" in ready_task_ids
+        assert "task_2" in ready_task_ids
+        assert "task_3" not in ready_task_ids  # Has dependencies
 
         # Verify LLM was called
         mock_provider.generate.assert_called_once()
@@ -186,6 +190,7 @@ class TestPlannerAgentPlanning:
         markdown_response = LLMResponse(
             content=f"```json\n{json.dumps(response_json)}\n```",
             model="gpt-4",
+            provider="openai",
             usage={"prompt_tokens": 50, "completion_tokens": 100, "total_tokens": 150},
             finish_reason="stop",
         )
@@ -194,8 +199,8 @@ class TestPlannerAgentPlanning:
 
         task_graph = await planner.plan(design_request)
 
-        assert len(task_graph.tasks) == 1
-        assert "task_1" in task_graph.tasks
+        assert len(task_graph.nodes) == 1
+        assert "task_1" in task_graph.nodes
 
     @pytest.mark.asyncio
     async def test_plan_invalid_json(self, planner, mock_provider, design_request):
@@ -203,6 +208,7 @@ class TestPlannerAgentPlanning:
         invalid_response = LLMResponse(
             content="This is not valid JSON {invalid}",
             model="gpt-4",
+            provider="openai",
             usage={"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
             finish_reason="stop",
         )
@@ -223,6 +229,7 @@ class TestPlannerAgentPlanning:
         invalid_response = LLMResponse(
             content=json.dumps({"dependencies": []}),
             model="gpt-4",
+            provider="openai",
             usage={"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
             finish_reason="stop",
         )
@@ -259,6 +266,7 @@ class TestPlannerAgentPlanning:
         cyclic_llm_response = LLMResponse(
             content=json.dumps(cyclic_response),
             model="gpt-4",
+            provider="openai",
             usage={"prompt_tokens": 50, "completion_tokens": 100, "total_tokens": 150},
             finish_reason="stop",
         )
@@ -275,7 +283,9 @@ class TestPlannerAgentReplanning:
     @pytest.fixture
     def mock_provider(self):
         """Create a mock LLM provider."""
-        return MagicMock(spec=UnifiedLLMProvider)
+        mock = MagicMock(spec=UnifiedLLMProvider)
+        mock.default_model = "gpt-4o"
+        return mock
 
     @pytest.fixture
     def planner(self, mock_provider):
@@ -285,18 +295,18 @@ class TestPlannerAgentReplanning:
     @pytest.fixture
     def design_request(self):
         """Create a sample design request."""
-        return DesignRequest(prompt="Create a box with a hole")
+        return DesignRequest(user_prompt="Create a box with a hole")
 
     @pytest.fixture
-    def previous_graph(self):
+    def previous_graph(self, design_request):
         """Create a previous task graph."""
-        graph = TaskGraph()
         from ai_designer.schemas.task_graph import TaskNode
 
+        graph = TaskGraph(request_id=design_request.request_id)
         graph.add_task(
             TaskNode(
-                id="task_1",
-                operation="create_box",
+                task_id="task_1",
+                operation_type="create_box",
                 description="Box",
                 parameters={"length": 10.0},
                 status=TaskStatus.PENDING,
@@ -325,6 +335,7 @@ class TestPlannerAgentReplanning:
         llm_response = LLMResponse(
             content=json.dumps(improved_response),
             model="gpt-4",
+            provider="openai",
             usage={"prompt_tokens": 150, "completion_tokens": 100, "total_tokens": 250},
             finish_reason="stop",
         )
@@ -334,15 +345,13 @@ class TestPlannerAgentReplanning:
         feedback = "Box dimensions are too small, increase to 15mm"
         new_graph = await planner.replan(design_request, feedback, previous_graph)
 
-        assert len(new_graph.tasks) == 1
-        assert new_graph.tasks["task_1"].parameters["length"] == 15.0
+        assert len(new_graph.nodes) == 1
+        assert new_graph.nodes["task_1"].parameters["length"] == 15.0
 
         # Verify LLM was called with feedback
         mock_provider.generate.assert_called_once()
         call_args = mock_provider.generate.call_args[0][0]
-        assert any(
-            "VALIDATION FEEDBACK" in msg["content"] for msg in call_args.messages
-        )
+        assert any("VALIDATION FEEDBACK" in msg.content for msg in call_args.messages)
 
     @pytest.mark.asyncio
     async def test_replan_failure(
@@ -352,6 +361,7 @@ class TestPlannerAgentReplanning:
         invalid_response = LLMResponse(
             content="Invalid JSON",
             model="gpt-4",
+            provider="openai",
             usage={"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
             finish_reason="stop",
         )
@@ -434,6 +444,8 @@ class TestPlannerAgentHelpers:
 
     def test_build_task_graph_valid(self, planner):
         """Test building task graph from valid data."""
+        from uuid import uuid4
+
         task_data = {
             "tasks": [
                 {
@@ -447,13 +459,15 @@ class TestPlannerAgentHelpers:
             "dependencies": [],
         }
 
-        graph = planner._build_task_graph(task_data)
+        graph = planner._build_task_graph(task_data, uuid4())
 
-        assert len(graph.tasks) == 1
-        assert "task_1" in graph.tasks
+        assert len(graph.nodes) == 1
+        assert "task_1" in graph.nodes
 
     def test_build_task_graph_with_cycle(self, planner):
         """Test building task graph with cycle raises error."""
+        from uuid import uuid4
+
         task_data = {
             "tasks": [
                 {
@@ -476,4 +490,4 @@ class TestPlannerAgentHelpers:
         }
 
         with pytest.raises(ValueError, match="contains cycles"):
-            planner._build_task_graph(task_data)
+            planner._build_task_graph(task_data, uuid4())

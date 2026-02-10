@@ -20,6 +20,7 @@ Example:
 import json
 import logging
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from ai_designer.core.llm_provider import LLMRequest, LLMRole, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType, DesignRequest
@@ -164,7 +165,7 @@ Decompose the following design prompt into a task graph:"""
 
         logger.info(
             f"Planning task graph for request {design_request.request_id} "
-            f"with prompt: {design_request.prompt[:100]}..."
+            f"with prompt: {design_request.user_prompt[:100]}..."
         )
 
         # Prepare LLM request
@@ -176,9 +177,10 @@ Decompose the following design prompt into a task graph:"""
                 },
                 {
                     "role": LLMRole.USER,
-                    "content": design_request.prompt,
+                    "content": design_request.user_prompt,
                 },
             ],
+            model=self.llm_provider.default_model,
             temperature=temp,
             max_tokens=2048,
         )
@@ -192,11 +194,13 @@ Decompose the following design prompt into a task graph:"""
                 task_data = self._parse_llm_response(response.content)
 
                 # Build and validate task graph
-                task_graph = self._build_task_graph(task_data)
+                task_graph = self._build_task_graph(
+                    task_data, design_request.request_id
+                )
 
                 logger.info(
-                    f"Successfully created task graph with {len(task_graph.tasks)} "
-                    f"tasks and {len(task_graph.dependencies)} dependencies"
+                    f"Successfully created task graph with {len(task_graph.nodes)} "
+                    f"tasks and {len(task_graph.edges)} dependencies"
                 )
 
                 return task_graph
@@ -262,11 +266,14 @@ Decompose the following design prompt into a task graph:"""
 
         return data
 
-    def _build_task_graph(self, task_data: Dict[str, Any]) -> TaskGraph:
+    def _build_task_graph(
+        self, task_data: Dict[str, Any], request_id: UUID
+    ) -> TaskGraph:
         """Build and validate a TaskGraph from parsed LLM data.
 
         Args:
             task_data: Parsed JSON with tasks and dependencies
+            request_id: UUID from the DesignRequest
 
         Returns:
             Validated TaskGraph object
@@ -274,13 +281,13 @@ Decompose the following design prompt into a task graph:"""
         Raises:
             ValueError: If task graph has cycles or invalid structure
         """
-        task_graph = TaskGraph()
+        task_graph = TaskGraph(request_id=request_id)
 
         # Add all tasks first
         for task_dict in task_data["tasks"]:
             task_node = TaskNode(
-                id=task_dict["id"],
-                operation=task_dict["operation"],
+                task_id=task_dict["id"],
+                operation_type=task_dict["operation"],
                 description=task_dict["description"],
                 parameters=task_dict.get("parameters", {}),
                 status=TaskStatus(task_dict.get("status", "pending")),
@@ -289,12 +296,11 @@ Decompose the following design prompt into a task graph:"""
 
         # Add dependencies
         for dep_dict in task_data.get("dependencies", []):
-            dependency = TaskDependency(
-                from_task_id=dep_dict["from_task_id"],
-                to_task_id=dep_dict["to_task_id"],
-                dependency_type=dep_dict.get("dependency_type", "sequential"),
+            task_graph.add_dependency(
+                from_task=dep_dict["from_task_id"],
+                to_task=dep_dict["to_task_id"],
+                dependency_type=dep_dict.get("dependency_type", "requires"),
             )
-            task_graph.add_dependency(dependency)
 
         # Validate DAG structure
         if task_graph.has_cycles():
@@ -302,10 +308,11 @@ Decompose the following design prompt into a task graph:"""
 
         # Verify topological ordering is possible
         execution_order = task_graph.get_execution_order()
-        if len(execution_order) != len(task_graph.tasks):
+        total_tasks_in_order = sum(len(level) for level in execution_order)
+        if total_tasks_in_order != len(task_graph.nodes):
             raise ValueError(
-                f"Topological sort failed: expected {len(task_graph.tasks)} "
-                f"tasks but got {len(execution_order)}"
+                f"Topological sort failed: expected {len(task_graph.nodes)} "
+                f"tasks but got {total_tasks_in_order}"
             )
 
         return task_graph
@@ -342,25 +349,25 @@ Decompose the following design prompt into a task graph:"""
         previous_json = {
             "tasks": [
                 {
-                    "id": task.id,
-                    "operation": task.operation,
+                    "id": task.task_id,
+                    "operation": task.operation_type,
                     "description": task.description,
                     "parameters": task.parameters,
                     "status": task.status.value,
                 }
-                for task in previous_graph.tasks.values()
+                for task in previous_graph.nodes.values()
             ],
             "dependencies": [
                 {
-                    "from_task_id": dep.from_task_id,
-                    "to_task_id": dep.to_task_id,
+                    "from_task_id": dep.from_task,
+                    "to_task_id": dep.to_task,
                 }
-                for dep in previous_graph.dependencies
+                for dep in previous_graph.edges
             ],
         }
 
         replan_prompt = f"""ORIGINAL PROMPT:
-{design_request.prompt}
+{design_request.user_prompt}
 
 PREVIOUS TASK GRAPH:
 {json.dumps(previous_json, indent=2)}
@@ -382,6 +389,7 @@ maintaining the original design intent."""
                     "content": replan_prompt,
                 },
             ],
+            model=self.llm_provider.default_model,
             temperature=self.default_temperature,
             max_tokens=2048,
         )
@@ -391,10 +399,12 @@ maintaining the original design intent."""
             try:
                 response = await self.llm_provider.generate(llm_request)
                 task_data = self._parse_llm_response(response.content)
-                task_graph = self._build_task_graph(task_data)
+                task_graph = self._build_task_graph(
+                    task_data, design_request.request_id
+                )
 
                 logger.info(
-                    f"Successfully replanned with {len(task_graph.tasks)} tasks"
+                    f"Successfully replanned with {len(task_graph.nodes)} tasks"
                 )
 
                 return task_graph
