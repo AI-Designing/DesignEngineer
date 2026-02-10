@@ -50,7 +50,9 @@ async def demo_basic_workflow():
 
     print(f"📝 Prompt: {request.user_prompt}")
     print(f"🔄 Max iterations: {orchestrator.max_iterations}")
-    print(f"♻️  Refinement: {'enabled' if orchestrator.enable_refinement else 'disabled'}")
+    print(
+        f"♻️  Refinement: {'enabled' if orchestrator.enable_refinement else 'disabled'}"
+    )
     print()
 
     # Execute workflow (without execution callback)
