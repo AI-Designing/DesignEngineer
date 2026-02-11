@@ -13,10 +13,10 @@ from typing import Any, Callable, Optional
 import structlog
 from langgraph.graph import END, StateGraph
 
+from ai_designer.agents.executor import FreeCADExecutor
 from ai_designer.agents.generator import GeneratorAgent
 from ai_designer.agents.planner import PlannerAgent
 from ai_designer.agents.validator import ValidatorAgent
-from ai_designer.agents.executor import FreeCADExecutor
 from ai_designer.orchestration.nodes import PipelineNodes
 from ai_designer.orchestration.routing import (
     ROUTE_FAIL,
@@ -41,9 +41,9 @@ def build_design_pipeline(
 ) -> StateGraph:
     """
     Build the LangGraph state machine for design workflow.
-    
+
     The pipeline implements:
-    
+
     ```
     START
       ↓
@@ -58,7 +58,7 @@ def build_design_pipeline(
                                               │
     human_review ←── fail ←───────────────────┘
     ```
-    
+
     Args:
         planner: Planner agent instance
         generator: Generator agent instance
@@ -66,7 +66,7 @@ def build_design_pipeline(
         executor: Optional FreeCAD executor
         websocket_callback: Optional callback for progress updates
         max_iterations: Maximum workflow iterations (default: 5)
-        
+
     Returns:
         Compiled StateGraph ready for execution
     """
@@ -76,7 +76,7 @@ def build_design_pipeline(
         has_executor=executor is not None,
         has_websocket=websocket_callback is not None,
     )
-    
+
     # Create node wrapper with agents
     nodes = PipelineNodes(
         planner=planner,
@@ -85,24 +85,24 @@ def build_design_pipeline(
         executor=executor,
         websocket_callback=websocket_callback,
     )
-    
+
     # Initialize state graph
     workflow = StateGraph(PipelineState)
-    
+
     # Add nodes
     workflow.add_node("planner", nodes.planner_node)
     workflow.add_node("generator", nodes.generator_node)
     workflow.add_node("executor", nodes.executor_node)
     workflow.add_node("validator", nodes.validator_node)
-    
+
     # Set entry point
     workflow.set_entry_point("planner")
-    
+
     # Linear edges through initial workflow
     workflow.add_edge("planner", "generator")
     workflow.add_edge("generator", "executor")
     workflow.add_edge("executor", "validator")
-    
+
     # Conditional edges from validator
     workflow.add_conditional_edges(
         "validator",
@@ -114,9 +114,9 @@ def build_design_pipeline(
             ROUTE_FAIL: END,  # Unrecoverable, end workflow
         },
     )
-    
+
     logger.info("Design pipeline built successfully")
-    
+
     return workflow.compile()
 
 
@@ -131,13 +131,13 @@ async def run_design_pipeline(
 ) -> DesignState:
     """
     Execute the design pipeline for a request.
-    
+
     This is a high-level convenience function that:
     1. Builds the pipeline
     2. Initializes state
     3. Executes the workflow
     4. Returns final design state
-    
+
     Args:
         request: Design request from user
         planner: Planner agent
@@ -146,7 +146,7 @@ async def run_design_pipeline(
         executor: Optional FreeCAD executor
         websocket_callback: Optional WebSocket callback
         max_iterations: Maximum iterations
-        
+
     Returns:
         Final design state with results
     """
@@ -156,7 +156,7 @@ async def run_design_pipeline(
         prompt=request.user_prompt[:100],
         max_iterations=max_iterations,
     )
-    
+
     try:
         # Build pipeline
         pipeline = build_design_pipeline(
@@ -167,24 +167,24 @@ async def run_design_pipeline(
             websocket_callback=websocket_callback,
             max_iterations=max_iterations,
         )
-        
+
         # Initialize design state
         design_state = DesignState(
             request_id=request.request_id,
             user_prompt=request.user_prompt,
             max_iterations=max_iterations,
         )
-        
+
         # Create pipeline state
         pipeline_state = PipelineState.from_design_state(
             design_state=design_state,
             max_iterations=max_iterations,
         )
-        
+
         # Execute pipeline
         logger.info("Invoking pipeline", request_id=str(request.request_id))
         final_state = await pipeline.ainvoke(pipeline_state)
-        
+
         # Update design state based on final routing decision
         if final_state.next_action == ROUTE_SUCCESS:
             final_state.design_state.mark_completed()
@@ -193,7 +193,7 @@ async def run_design_pipeline(
                 final_state.design_state.mark_failed(
                     final_state.routing_reason or "Pipeline failed"
                 )
-        
+
         logger.info(
             "Pipeline execution completed",
             request_id=str(request.request_id),
@@ -201,9 +201,9 @@ async def run_design_pipeline(
             iterations=final_state.workflow_iteration,
             next_action=final_state.next_action,
         )
-        
+
         return final_state.design_state
-        
+
     except Exception as e:
         logger.error(
             "Pipeline execution failed",
@@ -211,7 +211,7 @@ async def run_design_pipeline(
             error=str(e),
             exc_info=True,
         )
-        
+
         # Create failed state
         design_state = DesignState(
             request_id=request.request_id,
@@ -219,18 +219,18 @@ async def run_design_pipeline(
             max_iterations=max_iterations,
         )
         design_state.mark_failed(f"Pipeline execution failed: {str(e)}")
-        
+
         return design_state
 
 
 class PipelineExecutor:
     """
     Reusable pipeline executor that maintains compiled pipeline.
-    
+
     This class compiles the pipeline once and reuses it for multiple executions,
     improving performance by avoiding repeated compilation.
     """
-    
+
     def __init__(
         self,
         planner: PlannerAgent,
@@ -242,7 +242,7 @@ class PipelineExecutor:
     ):
         """
         Initialize pipeline executor.
-        
+
         Args:
             planner: Planner agent
             generator: Generator agent
@@ -257,7 +257,7 @@ class PipelineExecutor:
         self.executor = executor
         self.websocket_callback = websocket_callback
         self.max_iterations = max_iterations
-        
+
         # Compile pipeline once
         self.pipeline = build_design_pipeline(
             planner=planner,
@@ -267,16 +267,16 @@ class PipelineExecutor:
             websocket_callback=websocket_callback,
             max_iterations=max_iterations,
         )
-        
+
         logger.info("Pipeline executor initialized")
-    
+
     async def execute(self, request: DesignRequest) -> DesignState:
         """
         Execute pipeline for a design request.
-        
+
         Args:
             request: Design request
-            
+
         Returns:
             Final design state
         """
@@ -284,7 +284,7 @@ class PipelineExecutor:
             "Executing pipeline",
             request_id=str(request.request_id),
         )
-        
+
         try:
             # Initialize states
             design_state = DesignState(
@@ -292,15 +292,15 @@ class PipelineExecutor:
                 user_prompt=request.user_prompt,
                 max_iterations=self.max_iterations,
             )
-            
+
             pipeline_state = PipelineState.from_design_state(
                 design_state=design_state,
                 max_iterations=self.max_iterations,
             )
-            
+
             # Execute
             final_state = await self.pipeline.ainvoke(pipeline_state)
-            
+
             # Update final status
             if final_state.next_action == ROUTE_SUCCESS:
                 final_state.design_state.mark_completed()
@@ -309,9 +309,9 @@ class PipelineExecutor:
                     final_state.design_state.mark_failed(
                         final_state.routing_reason or "Pipeline failed"
                     )
-            
+
             return final_state.design_state
-            
+
         except Exception as e:
             logger.error("Pipeline execution failed", error=str(e), exc_info=True)
             design_state = DesignState(

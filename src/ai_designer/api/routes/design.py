@@ -12,7 +12,11 @@ from pydantic import BaseModel, Field
 
 from ai_designer.agents.executor import FreeCADExecutor
 from ai_designer.agents.orchestrator import OrchestratorAgent
-from ai_designer.api.deps import get_freecad_executor, get_orchestrator_agent, get_pipeline_executor
+from ai_designer.api.deps import (
+    get_freecad_executor,
+    get_orchestrator_agent,
+    get_pipeline_executor,
+)
 from ai_designer.orchestration.pipeline import PipelineExecutor
 from ai_designer.schemas.design_state import DesignRequest as DesignRequestSchema
 from ai_designer.schemas.design_state import DesignState, ExecutionStatus
@@ -241,7 +245,7 @@ async def refine_design(
 
     # Update prompt with refinement feedback
     updated_prompt = f"{design_state.user_prompt}\n\nRefinement: {refinement.feedback}"
-    
+
     # Add background task to reprocess via pipeline
     background_tasks.add_task(
         _process_design_pipeline,
@@ -326,4 +330,3 @@ async def _process_design_pipeline(
         logger.exception(f"Error processing design {str_request_id} via pipeline: {e}")
         design_state.mark_failed(f"Pipeline execution failed: {str(e)}")
         _designs[str_request_id] = design_state
-
