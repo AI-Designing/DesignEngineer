@@ -12,7 +12,9 @@ from pydantic import BaseModel, Field
 
 from ai_designer.agents.executor import FreeCADExecutor
 from ai_designer.agents.orchestrator import OrchestratorAgent
-from ai_designer.api.deps import get_freecad_executor, get_orchestrator_agent
+from ai_designer.api.deps import get_freecad_executor, get_orchestrator_agent, get_pipeline_executor
+from ai_designer.orchestration.pipeline import PipelineExecutor
+from ai_designer.schemas.design_state import DesignRequest as DesignRequestSchema
 from ai_designer.schemas.design_state import DesignState, ExecutionStatus
 
 logger = logging.getLogger(__name__)
@@ -94,29 +96,28 @@ _designs: Dict[str, DesignState] = {}
 async def create_design(
     request: DesignRequest,
     background_tasks: BackgroundTasks,
-    orchestrator: OrchestratorAgent = Depends(get_orchestrator_agent),
-    executor: FreeCADExecutor = Depends(get_freecad_executor),
+    pipeline: PipelineExecutor = Depends(get_pipeline_executor),
 ) -> DesignResponse:
     """
     Submit a new design request.
 
-    The design pipeline runs asynchronously:
+    The design pipeline runs asynchronously using LangGraph orchestration:
     1. Planner Agent: Create task graph
     2. Generator Agent: Generate FreeCAD scripts
     3. Executor: Run scripts (if enabled)
     4. Validator Agent: Check results
-    5. Iterate if needed (up to max_iterations)
+    5. Conditional routing: success/refine/replan/fail
+    6. Iterate if needed (up to max_iterations)
 
     Args:
         request: Design parameters
         background_tasks: FastAPI background tasks
-        orchestrator: Orchestrator agent
-        executor: FreeCAD executor
+        pipeline: LangGraph pipeline executor
 
     Returns:
         Design request ID and initial status
     """
-    request_id = str(uuid4())
+    request_id = uuid4()
     now = datetime.utcnow()
 
     # Create initial design state
@@ -127,23 +128,23 @@ async def create_design(
     )
 
     # Store in temporary storage
-    _designs[request_id] = design_state
+    _designs[str(request_id)] = design_state
 
-    # Add background task to process the design
+    # Add background task to process the design via LangGraph pipeline
     background_tasks.add_task(
-        _process_design,
-        str(request_id),
-        request.enable_execution,
-        orchestrator,
-        executor,
+        _process_design_pipeline,
+        request_id,
+        request.prompt,
+        request.max_iterations,
+        pipeline,
     )
 
     logger.info(f"Created design request {request_id}: {request.prompt[:50]}...")
 
     return DesignResponse(
-        request_id=request_id,
+        request_id=str(request_id),
         status=ExecutionStatus.PENDING,
-        message="Design request accepted and queued for processing",
+        message="Design request accepted and queued for processing (LangGraph pipeline)",
         created_at=now,
     )
 
@@ -207,8 +208,7 @@ async def refine_design(
     request_id: str,
     refinement: RefinementRequest,
     background_tasks: BackgroundTasks,
-    orchestrator: OrchestratorAgent = Depends(get_orchestrator_agent),
-    executor: FreeCADExecutor = Depends(get_freecad_executor),
+    pipeline: PipelineExecutor = Depends(get_pipeline_executor),
 ) -> Dict[str, str]:
     """
     Submit refinement feedback for a design.
@@ -217,8 +217,7 @@ async def refine_design(
         request_id: Design request ID
         refinement: Refinement feedback
         background_tasks: FastAPI background tasks
-        orchestrator: Orchestrator agent
-        executor: FreeCAD executor
+        pipeline: LangGraph pipeline executor
 
     Returns:
         Acknowledgment message
@@ -241,18 +240,15 @@ async def refine_design(
         )
 
     # Update prompt with refinement feedback
-    design_state.user_prompt = (
-        f"{design_state.user_prompt}\n\nRefinement: {refinement.feedback}"
-    )
-    design_state.status = ExecutionStatus.REFINING
-    design_state.updated_at = datetime.utcnow()
-    # Add background task to reprocess
+    updated_prompt = f"{design_state.user_prompt}\n\nRefinement: {refinement.feedback}"
+    
+    # Add background task to reprocess via pipeline
     background_tasks.add_task(
-        _process_design,
-        request_id,
-        True,
-        orchestrator,
-        executor,
+        _process_design_pipeline,
+        design_state.request_id,
+        updated_prompt,
+        design_state.max_iterations,
+        pipeline,
     )
 
     logger.info(f"Refinement requested for {request_id}: {refinement.feedback[:50]}...")
@@ -283,54 +279,51 @@ async def delete_design(request_id: str) -> None:
     logger.info(f"Deleted design request {request_id}")
 
 
-async def _process_design(
-    request_id: str,
-    enable_execution: bool,
-    orchestrator: OrchestratorAgent,
-    executor: FreeCADExecutor,
+async def _process_design_pipeline(
+    request_id: UUID,
+    prompt: str,
+    max_iterations: int,
+    pipeline: PipelineExecutor,
 ) -> None:
     """
-    Background task to process a design request through the agent pipeline.
+    Background task to process a design request through the LangGraph pipeline.
 
     Args:
         request_id: Design request ID
-        enable_execution: Whether to execute scripts
-        orchestrator: Orchestrator agent instance
-        executor: FreeCAD executor instance
+        prompt: User's design prompt
+        max_iterations: Maximum iterations
+        pipeline: LangGraph pipeline executor instance
     """
-    design_state = _designs.get(request_id)
+    str_request_id = str(request_id)
+    design_state = _designs.get(str_request_id)
     if not design_state:
-        logger.error(f"Design {request_id} not found in processing")
+        logger.error(f"Design {str_request_id} not found in processing")
         return
 
     try:
-        logger.info(f"Processing design {request_id} with orchestrator...")
+        logger.info(f"Processing design {str_request_id} with LangGraph pipeline...")
 
-        # Prepare execution callback if enabled
-        execution_callback = None
-        if enable_execution:
-
-            async def exec_callback(scripts: Dict[str, Any]) -> Dict[str, Any]:
-                """Wrapper to call executor with proper interface."""
-                return await executor.execute(
-                    scripts=scripts,
-                    document_name=f"design_{request_id}",
-                )
-
-            execution_callback = exec_callback
-
-        # Run orchestrator pipeline
-        result_state = await orchestrator.execute(
-            request=design_state,
-            execution_callback=execution_callback,
+        # Create design request for pipeline
+        request_schema = DesignRequestSchema(
+            request_id=request_id,
+            user_prompt=prompt,
         )
 
-        # Update stored state with results
-        _designs[request_id] = result_state
+        # Execute pipeline
+        result_state = await pipeline.execute(request_schema)
 
-        logger.info(f"Design {request_id} completed with status: {result_state.status}")
+        # Update stored state with results
+        _designs[str_request_id] = result_state
+
+        logger.info(
+            f"Design {str_request_id} completed via pipeline",
+            status=result_state.status.value,
+            iterations=result_state.current_iteration,
+            is_valid=result_state.is_valid,
+        )
 
     except Exception as e:
-        logger.exception(f"Error processing design {request_id}: {e}")
-        design_state.mark_failed(str(e))
-        _designs[request_id] = design_state
+        logger.exception(f"Error processing design {str_request_id} via pipeline: {e}")
+        design_state.mark_failed(f"Pipeline execution failed: {str(e)}")
+        _designs[str_request_id] = design_state
+

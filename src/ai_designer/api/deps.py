@@ -19,6 +19,7 @@ from ai_designer.agents.orchestrator import OrchestratorAgent
 from ai_designer.agents.planner import PlannerAgent
 from ai_designer.agents.validator import ValidatorAgent
 from ai_designer.core.llm_provider import UnifiedLLMProvider
+from ai_designer.orchestration.pipeline import PipelineExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ _generator_agent: Optional[GeneratorAgent] = None
 _validator_agent: Optional[ValidatorAgent] = None
 _orchestrator_agent: Optional[OrchestratorAgent] = None
 _freecad_executor: Optional[FreeCADExecutor] = None
+_pipeline_executor: Optional[PipelineExecutor] = None
 
 
 def get_llm_provider() -> UnifiedLLMProvider:
@@ -199,6 +201,40 @@ async def verify_api_key(
     return x_api_key
 
 
+def get_pipeline_executor(
+    planner: PlannerAgent = Depends(get_planner_agent),
+    generator: GeneratorAgent = Depends(get_generator_agent),
+    validator: ValidatorAgent = Depends(get_validator_agent),
+    executor: FreeCADExecutor = Depends(get_freecad_executor),
+) -> PipelineExecutor:
+    """
+    Get the LangGraph Pipeline Executor instance.
+
+    Args:
+        planner: Planner agent dependency
+        generator: Generator agent dependency
+        validator: Validator agent dependency
+        executor: FreeCAD executor dependency
+
+    Returns:
+        Configured Pipeline Executor with LangGraph orchestration
+    """
+    global _pipeline_executor
+
+    if _pipeline_executor is None:
+        _pipeline_executor = PipelineExecutor(
+            planner=planner,
+            generator=generator,
+            validator=validator,
+            executor=executor,
+            websocket_callback=None,  # Will be set when WebSocket manager is ready
+            max_iterations=5,
+        )
+        logger.info("Initialized PipelineExecutor with LangGraph")
+
+    return _pipeline_executor
+
+
 def reset_dependencies() -> None:
     """
     Reset all global dependency instances.
@@ -206,7 +242,7 @@ def reset_dependencies() -> None:
     Useful for testing or when configuration changes.
     """
     global _llm_provider, _planner_agent, _generator_agent, _validator_agent
-    global _orchestrator_agent, _freecad_executor
+    global _orchestrator_agent, _freecad_executor, _pipeline_executor
 
     _llm_provider = None
     _planner_agent = None
@@ -214,5 +250,6 @@ def reset_dependencies() -> None:
     _validator_agent = None
     _orchestrator_agent = None
     _freecad_executor = None
+    _pipeline_executor = None
 
     logger.info("Reset all dependency instances")
