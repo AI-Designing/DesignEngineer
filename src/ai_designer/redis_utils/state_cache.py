@@ -3,17 +3,29 @@ import time
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from uuid import UUID
+
+from ..schemas.design_state import DesignState, ExecutionStatus
 
 
 class StateCache:
-    """Enhanced state cache for storing FreeCAD state analysis data in Redis"""
+    """
+    Enhanced state cache for storing design state and FreeCAD analysis data in Redis.
+
+    Supports both:
+    - DesignState (Pydantic) for multi-agent workflow state
+    - Legacy FreeCAD state analysis data (dict-based)
+    """
 
     def __init__(self, redis_client):
         self.redis_client = redis_client
+        # Legacy prefixes (preserved for backwards compatibility)
         self.key_prefix = "freecad"
         self.state_prefix = f"{self.key_prefix}:state"
         self.analysis_prefix = f"{self.key_prefix}:analysis"
         self.metadata_prefix = f"{self.key_prefix}:metadata"
+        # New DesignState prefix
+        self.design_prefix = "design"
 
     def generate_state_key(
         self, document_name: str = None, session_id: str = None
@@ -288,3 +300,224 @@ class StateCache:
             return True
         except Exception:
             return False
+
+    # =========================================================================
+    # DesignState Persistence (Pydantic-based)
+    # =========================================================================
+
+    def _get_design_state_key(self, request_id: UUID) -> str:
+        """Get Redis key for DesignState storage."""
+        return f"{self.design_prefix}:{request_id}:state"
+
+    def cache_design_state(
+        self,
+        design_state: DesignState,
+        ttl_seconds: Optional[int] = 86400,  # 24 hours default
+    ) -> bool:
+        """
+        Cache DesignState using Pydantic serialization.
+
+        Args:
+            design_state: DesignState object to cache
+            ttl_seconds: Expiration time in seconds (default 24h, None for no expiration)
+
+        Returns:
+            True if cached successfully
+        """
+        try:
+            key = self._get_design_state_key(design_state.request_id)
+
+            # Serialize using Pydantic's model_dump_json for efficient JSON serialization
+            serialized = design_state.model_dump_json()
+
+            # Store with optional TTL
+            self.redis_client.set(key, serialized, ex=ttl_seconds)
+
+            # Update index for listing
+            index_key = f"{self.design_prefix}:index"
+            self.redis_client.hset(
+                index_key,
+                str(design_state.request_id),
+                json.dumps(
+                    {
+                        "status": design_state.status.value,
+                        "created_at": design_state.created_at.isoformat(),
+                        "updated_at": design_state.updated_at.isoformat(),
+                    }
+                ),
+            )
+
+            return True
+        except Exception as e:
+            print(f"Failed to cache DesignState: {e}")
+            return False
+
+    def retrieve_design_state(self, request_id: UUID) -> Optional[DesignState]:
+        """
+        Retrieve DesignState with automatic Pydantic deserialization.
+
+        Args:
+            request_id: Design request ID
+
+        Returns:
+            DesignState object or None if not found
+        """
+        try:
+            key = self._get_design_state_key(request_id)
+            data = self.redis_client.get(key)
+
+            if not data:
+                return None
+
+            # Deserialize using Pydantic's model_validate_json
+            decoded = data.decode("utf-8") if isinstance(data, bytes) else data
+            return DesignState.model_validate_json(decoded)
+
+        except Exception as e:
+            print(f"Failed to retrieve DesignState: {e}")
+            return None
+
+    def update_design_state(
+        self, design_state: DesignState, ttl_seconds: Optional[int] = 86400
+    ) -> bool:
+        """
+        Update existing DesignState (alias for cache_design_state).
+
+        Args:
+            design_state: Updated DesignState object
+            ttl_seconds: Reset TTL to this value (default 24h)
+
+        Returns:
+            True if updated successfully
+        """
+        # Update timestamp
+        design_state.updated_at = datetime.utcnow()
+        return self.cache_design_state(design_state, ttl_seconds)
+
+    def delete_design_state(self, request_id: UUID) -> bool:
+        """
+        Delete DesignState from cache.
+
+        Args:
+            request_id: Design request ID
+
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            key = self._get_design_state_key(request_id)
+            self.redis_client.delete(key)
+
+            # Remove from index
+            index_key = f"{self.design_prefix}:index"
+            self.redis_client.hdel(index_key, str(request_id))
+
+            return True
+        except Exception as e:
+            print(f"Failed to delete DesignState: {e}")
+            return False
+
+    def list_design_states(
+        self, status: Optional[ExecutionStatus] = None
+    ) -> List[UUID]:
+        """
+        List all design request IDs, optionally filtered by status.
+
+        Args:
+            status: Filter by execution status (optional)
+
+        Returns:
+            List of request IDs
+        """
+        try:
+            index_key = f"{self.design_prefix}:index"
+            all_entries = self.redis_client.hgetall(index_key)
+
+            if not all_entries:
+                return []
+
+            request_ids = []
+            for request_id_str, metadata_str in all_entries.items():
+                try:
+                    metadata = json.loads(metadata_str)
+                    # Filter by status if specified
+                    if status is None or metadata.get("status") == status.value:
+                        request_ids.append(UUID(request_id_str))
+                except Exception:
+                    continue
+
+            return request_ids
+
+        except Exception as e:
+            print(f"Failed to list design states: {e}")
+            return []
+
+    def set_design_ttl(self, request_id: UUID, ttl_seconds: int = 86400) -> bool:
+        """
+        Set or update TTL for a DesignState.
+
+        Args:
+            request_id: Design request ID
+            ttl_seconds: Expiration time in seconds (default 24h)
+
+        Returns:
+            True if TTL was set
+        """
+        try:
+            key = self._get_design_state_key(request_id)
+            return self.redis_client.expire(key, ttl_seconds)
+        except Exception as e:
+            print(f"Failed to set TTL: {e}")
+            return False
+
+    def get_design_ttl(self, request_id: UUID) -> int:
+        """
+        Get remaining TTL for a DesignState.
+
+        Args:
+            request_id: Design request ID
+
+        Returns:
+            Seconds remaining, -1 if no expiration, -2 if doesn't exist
+        """
+        try:
+            key = self._get_design_state_key(request_id)
+            return self.redis_client.ttl(key)
+        except Exception as e:
+            print(f"Failed to get TTL: {e}")
+            return -2
+
+    def cleanup_completed_designs(self, older_than_hours: int = 24) -> int:
+        """
+        Cleanup completed designs older than specified hours.
+
+        Args:
+            older_than_hours: Delete designs completed more than this many hours ago
+
+        Returns:
+            Number of designs deleted
+        """
+        try:
+            deleted_count = 0
+            cutoff_time = datetime.utcnow().timestamp() - (older_than_hours * 3600)
+
+            # Get all completed designs
+            completed_ids = self.list_design_states(status=ExecutionStatus.COMPLETED)
+
+            for request_id in completed_ids:
+                state = self.retrieve_design_state(request_id)
+                if state and state.completed_at:
+                    if state.completed_at.timestamp() < cutoff_time:
+                        if self.delete_design_state(request_id):
+                            deleted_count += 1
+
+            return deleted_count
+
+        except Exception as e:
+            print(f"Failed to cleanup designs: {e}")
+            return 0
+
+    # =========================================================================
+    # Legacy FreeCAD State Cache Methods (preserved for backwards compatibility)
+    # =========================================================================
+

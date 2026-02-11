@@ -1,19 +1,36 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import redis
+from redis.connection import ConnectionPool
 
 
 class RedisClient:
-    def __init__(self, host: str = "localhost", port: int = 6379, db: int = 0):
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 6379,
+        db: int = 0,
+        max_connections: int = 50,
+    ):
         self.host = host
         self.port = port
         self.db = db
         self.connection: Optional[redis.Redis] = None
+        self.pool: Optional[ConnectionPool] = None
+        self.max_connections = max_connections
 
     def connect(self) -> bool:
-        """Establish connection to Redis and return True if successful."""
+        """Establish connection to Redis with connection pooling."""
         try:
-            self.connection = redis.Redis(host=self.host, port=self.port, db=self.db)
+            # Create connection pool for efficient async/concurrent access
+            self.pool = ConnectionPool(
+                host=self.host,
+                port=self.port,
+                db=self.db,
+                max_connections=self.max_connections,
+                decode_responses=False,  # We handle decoding manually for flexibility
+            )
+            self.connection = redis.Redis(connection_pool=self.pool)
             return self.connection.ping()
         except Exception as e:
             print(f"Failed to connect to Redis: {e}")
@@ -86,6 +103,136 @@ class RedisClient:
         """Delete a field from a hash."""
         self._check_connection()
         return self.connection.hdel(name, key)
+
+    # Redis Streams operations
+    def xadd(
+        self,
+        stream: str,
+        fields: Dict[str, Any],
+        maxlen: Optional[int] = 1000,
+        approximate: bool = True,
+    ) -> str:
+        """
+        Add entry to Redis Stream with automatic trimming.
+
+        Args:
+            stream: Stream name
+            fields: Field-value pairs to add
+            maxlen: Maximum stream length (default 1000, prevents unbounded growth)
+            approximate: Use approximate trimming (~) for better performance
+
+        Returns:
+            Entry ID (e.g., '1234567890123-0')
+        """
+        self._check_connection()
+        return self.connection.xadd(stream, fields, maxlen=maxlen, approximate=approximate)
+
+    def xrange(
+        self,
+        stream: str,
+        start: str = "-",
+        end: str = "+",
+        count: Optional[int] = None,
+    ) -> List[Tuple[bytes, Dict[bytes, bytes]]]:
+        """
+        Read entries from Redis Stream.
+
+        Args:
+            stream: Stream name
+            start: Start ID ('-' for beginning)
+            end: End ID ('+' for end)
+            count: Maximum number of entries
+
+        Returns:
+            List of (entry_id, fields) tuples
+        """
+        self._check_connection()
+        return self.connection.xrange(stream, start, end, count)
+
+    def xrevrange(
+        self,
+        stream: str,
+        start: str = "+",
+        end: str = "-",
+        count: Optional[int] = None,
+    ) -> List[Tuple[bytes, Dict[bytes, bytes]]]:
+        """
+        Read entries from Redis Stream in reverse order.
+
+        Args:
+            stream: Stream name
+            start: Start ID ('+' for end)
+            end: End ID ('-' for beginning)
+            count: Maximum number of entries
+
+        Returns:
+            List of (entry_id, fields) tuples in reverse order
+        """
+        self._check_connection()
+        return self.connection.xrevrange(stream, start, end, count)
+
+    def xlen(self, stream: str) -> int:
+        """Get the number of entries in a stream."""
+        self._check_connection()
+        return self.connection.xlen(stream)
+
+    # Redis Pub/Sub operations
+    def publish(self, channel: str, message: str) -> int:
+        """
+        Publish message to Redis Pub/Sub channel.
+
+        Args:
+            channel: Channel name
+            message: Message to publish (typically JSON string)
+
+        Returns:
+            Number of subscribers that received the message
+        """
+        self._check_connection()
+        return self.connection.publish(channel, message)
+
+    def subscribe(self, *channels: str) -> redis.client.PubSub:
+        """
+        Create PubSub instance subscribed to channels.
+
+        Args:
+            channels: Channel names to subscribe to
+
+        Returns:
+            PubSub object for listening to messages
+        """
+        self._check_connection()
+        pubsub = self.connection.pubsub()
+        pubsub.subscribe(*channels)
+        return pubsub
+
+    # TTL operations
+    def expire(self, key: str, seconds: int) -> bool:
+        """
+        Set TTL (time-to-live) on a key.
+
+        Args:
+            key: Key name
+            seconds: Expiration time in seconds
+
+        Returns:
+            True if TTL was set, False if key doesn't exist
+        """
+        self._check_connection()
+        return bool(self.connection.expire(key, seconds))
+
+    def ttl(self, key: str) -> int:
+        """
+        Get remaining TTL of a key.
+
+        Args:
+            key: Key name
+
+        Returns:
+            Seconds remaining, -1 if no expiration, -2 if key doesn't exist
+        """
+        self._check_connection()
+        return self.connection.ttl(key)
 
 
 # Example usage:
