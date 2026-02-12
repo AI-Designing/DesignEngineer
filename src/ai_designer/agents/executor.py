@@ -8,24 +8,29 @@ OrchestratorAgent to enable automated script execution and validation.
 
 from pathlib import Path
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 from ai_designer.core.logging_config import get_logger
 from ai_designer.core.sandbox import ExecutionResult, execute_safe_script
+from ai_designer.freecad.headless_runner import HeadlessRunner
+from ai_designer.freecad.state_extractor import StateExtractor
 
 logger = get_logger(__name__)
 
 
 class FreeCADExecutor:
     """
-    Executes FreeCAD scripts safely via sandbox.
+    Executes FreeCAD scripts safely via sandbox or headless runner.
 
     Can be passed as execution_callback to OrchestratorAgent for
     automated script execution during the design workflow.
 
     Features:
-    - Safe execution via sandboxed subprocess
+    - Safe execution via sandboxed subprocess or headless runner
     - Configurable timeout
     - Automatic output saving
+    - Multi-format export (STEP, STL, FCStd)
+    - State extraction
     - Comprehensive error handling
     - Object tracking and metadata extraction
     """
@@ -36,6 +41,9 @@ class FreeCADExecutor:
         freecad_path: Optional[str] = None,
         save_outputs: bool = True,
         outputs_dir: str = "outputs",
+        use_headless: bool = True,
+        export_formats: Optional[list] = None,
+        stl_resolution: float = 0.1,
     ):
         """
         Initialize FreeCAD executor.
@@ -45,11 +53,31 @@ class FreeCADExecutor:
             freecad_path: Path to FreeCAD executable or AppImage (auto-detect if None)
             save_outputs: Whether to save generated models (default: True)
             outputs_dir: Directory for saved outputs (default: "outputs")
+            use_headless: Use HeadlessRunner instead of sandbox (default: True)
+            export_formats: List of export formats ['step', 'stl', 'fcstd'] (default: None = all)
+            stl_resolution: STL mesh resolution 0.01-1.0 (default: 0.1)
         """
         self.timeout = timeout
         self.freecad_path = freecad_path
         self.save_outputs = save_outputs
         self.outputs_dir = Path(outputs_dir)
+        self.use_headless = use_headless
+        self.export_formats = export_formats
+        self.stl_resolution = stl_resolution
+
+        # Initialize headless components
+        if self.use_headless:
+            self.headless_runner = HeadlessRunner(
+                freecad_cmd=freecad_path,
+                outputs_dir=self.outputs_dir,
+                timeout=timeout,
+            )
+            self.state_extractor = StateExtractor(
+                freecad_cmd=freecad_path or self.headless_runner.freecad_cmd
+            )
+        else:
+            self.headless_runner = None
+            self.state_extractor = None
 
         # Create outputs directory if it doesn't exist
         if self.save_outputs:
@@ -60,10 +88,15 @@ class FreeCADExecutor:
             timeout=timeout,
             save_outputs=save_outputs,
             outputs_dir=str(self.outputs_dir),
+            use_headless=use_headless,
+            export_formats=export_formats,
         )
 
     async def execute(
-        self, scripts: Dict[str, str], document_name: Optional[str] = None
+        self,
+        scripts: Dict[str, str],
+        document_name: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute FreeCAD scripts.
@@ -74,6 +107,7 @@ class FreeCADExecutor:
         Args:
             scripts: Dictionary of {task_id: script_code}
             document_name: Optional FreeCAD document name
+            request_id: Optional request ID for tracking (auto-generated if None)
 
         Returns:
             Dictionary with execution results:
@@ -84,6 +118,8 @@ class FreeCADExecutor:
             - errors: List[str] - Error messages if any
             - execution_time: float - Total execution time
             - document_path: str - Path to saved document (if save_outputs=True)
+            - state: Dict - Document state (if use_headless=True)
+            - exports: Dict[str, str] - Exported file paths (if export_formats specified)
 
         Example:
             >>> executor = FreeCADExecutor(timeout=60, save_outputs=True)
@@ -93,6 +129,10 @@ class FreeCADExecutor:
         """
         logger.info("Executing FreeCAD scripts", count=len(scripts))
 
+        # Generate request ID if not provided
+        if request_id is None:
+            request_id = str(uuid4())
+
         results = {
             "success": True,
             "executed_count": 0,
@@ -101,44 +141,92 @@ class FreeCADExecutor:
             "errors": [],
             "execution_time": 0.0,
             "document_path": None,
+            "request_id": request_id,
         }
 
         # Combine all scripts in order
-        # TODO: In future, could execute in dependency order from task graph
         combined_script = "\n\n".join(
             f"# Task: {task_id}\n{script}" for task_id, script in scripts.items()
         )
 
         try:
-            # Execute via sandbox
-            exec_result: ExecutionResult = execute_safe_script(
-                script=combined_script,
-                timeout=self.timeout,
-                document_name=document_name,
-                freecad_path=self.freecad_path,
-            )
-
-            if exec_result.success:
-                results["success"] = True
-                results["executed_count"] = len(scripts)
-                results["created_objects"] = exec_result.created_objects
-                results["execution_time"] = exec_result.execution_time
-
-                if exec_result.document_path:
-                    results["document_path"] = str(exec_result.document_path)
-
-                logger.info(
-                    "Scripts executed successfully",
-                    objects=len(exec_result.created_objects),
-                    time=f"{exec_result.execution_time:.2f}s",
-                    document=exec_result.document_path,
+            # Use headless runner if enabled
+            if self.use_headless and self.headless_runner:
+                exec_result = await self.headless_runner.execute_script(
+                    script=combined_script,
+                    prompt=f"Executing {len(scripts)} tasks",
+                    request_id=request_id,
+                    document_name=document_name,
                 )
-            else:
-                results["success"] = False
-                results["failed_count"] = len(scripts)
-                results["errors"].append(exec_result.error or "Unknown error")
 
-                logger.error("Script execution failed", error=exec_result.error)
+                if exec_result.success:
+                    results["success"] = True
+                    results["executed_count"] = len(scripts)
+                    results["created_objects"] = exec_result.created_objects
+                    results["execution_time"] = exec_result.execution_time
+
+                    if exec_result.document_path:
+                        doc_path = Path(exec_result.document_path)
+                        results["document_path"] = str(doc_path)
+
+                        # Extract state
+                        if self.state_extractor:
+                            state = self.state_extractor.extract_state(doc_path)
+                            results["state"] = state
+
+                        # Export to multiple formats
+                        if self.export_formats:
+                            exports = await self.headless_runner.export_all_formats(
+                                doc_path=doc_path,
+                                formats=self.export_formats,
+                                stl_resolution=self.stl_resolution,
+                            )
+                            results["exports"] = {
+                                fmt: str(path) if path else None
+                                for fmt, path in exports.items()
+                            }
+
+                    logger.info(
+                        "Headless execution successful",
+                        objects=len(exec_result.created_objects),
+                        time=f"{exec_result.execution_time:.2f}s",
+                        document=exec_result.document_path,
+                    )
+                else:
+                    results["success"] = False
+                    results["failed_count"] = len(scripts)
+                    results["errors"].append(exec_result.error or "Unknown error")
+                    logger.error("Headless execution failed", error=exec_result.error)
+
+            else:
+                # Fallback to sandbox execution
+                exec_result: ExecutionResult = execute_safe_script(
+                    script=combined_script,
+                    timeout=self.timeout,
+                    document_name=document_name,
+                    freecad_path=self.freecad_path,
+                )
+
+                if exec_result.success:
+                    results["success"] = True
+                    results["executed_count"] = len(scripts)
+                    results["created_objects"] = exec_result.created_objects
+                    results["execution_time"] = exec_result.execution_time
+
+                    if exec_result.document_path:
+                        results["document_path"] = str(exec_result.document_path)
+
+                    logger.info(
+                        "Sandbox execution successful",
+                        objects=len(exec_result.created_objects),
+                        time=f"{exec_result.execution_time:.2f}s",
+                        document=exec_result.document_path,
+                    )
+                else:
+                    results["success"] = False
+                    results["failed_count"] = len(scripts)
+                    results["errors"].append(exec_result.error or "Unknown error")
+                    logger.error("Sandbox execution failed", error=exec_result.error)
 
         except Exception as e:
             results["success"] = False
