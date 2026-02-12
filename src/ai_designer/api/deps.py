@@ -19,6 +19,7 @@ from ai_designer.agents.orchestrator import OrchestratorAgent
 from ai_designer.agents.planner import PlannerAgent
 from ai_designer.agents.validator import ValidatorAgent
 from ai_designer.core.llm_provider import UnifiedLLMProvider
+from ai_designer.export.exporter import CADExporter
 from ai_designer.orchestration.pipeline import PipelineExecutor
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ _validator_agent: Optional[ValidatorAgent] = None
 _orchestrator_agent: Optional[OrchestratorAgent] = None
 _freecad_executor: Optional[FreeCADExecutor] = None
 _pipeline_executor: Optional[PipelineExecutor] = None
+_cad_exporter: Optional[CADExporter] = None
 
 
 def get_llm_provider() -> UnifiedLLMProvider:
@@ -235,6 +237,25 @@ def get_pipeline_executor(
     return _pipeline_executor
 
 
+def get_cad_exporter() -> CADExporter:
+    """
+    Get the CAD Exporter instance.
+
+    Returns:
+        Configured CAD exporter with metadata and caching
+    """
+    global _cad_exporter
+
+    if _cad_exporter is None:
+        _cad_exporter = CADExporter(
+            outputs_dir="outputs",
+            enable_cache=True,
+        )
+        logger.info("Initialized CADExporter")
+
+    return _cad_exporter
+
+
 def reset_dependencies() -> None:
     """
     Reset all global dependency instances.
@@ -242,7 +263,7 @@ def reset_dependencies() -> None:
     Useful for testing or when configuration changes.
     """
     global _llm_provider, _planner_agent, _generator_agent, _validator_agent
-    global _orchestrator_agent, _freecad_executor, _pipeline_executor
+    global _orchestrator_agent, _freecad_executor, _pipeline_executor, _cad_exporter
 
     _llm_provider = None
     _planner_agent = None
@@ -251,5 +272,6 @@ def reset_dependencies() -> None:
     _orchestrator_agent = None
     _freecad_executor = None
     _pipeline_executor = None
+    _cad_exporter = None
 
     logger.info("Reset all dependency instances")
