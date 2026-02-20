@@ -11,9 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 
-def compute_state_diff(
-    before: Dict[str, Any], after: Dict[str, Any]
-) -> Dict[str, Any]:
+def compute_state_diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
     """Return a structured diff between two FreeCAD state snapshots.
 
     Args:
@@ -35,7 +33,8 @@ def compute_state_diff(
     return {
         "objects_added": sorted(after_names - before_names),
         "objects_removed": sorted(before_names - after_names),
-        "object_count_delta": after.get("object_count", 0) - before.get("object_count", 0),
+        "object_count_delta": after.get("object_count", 0)
+        - before.get("object_count", 0),
         "had_errors_before": before.get("live_state", {}).get("has_errors", False),
         "had_errors_after": after.get("live_state", {}).get("has_errors", False),
         "error_introduced": (

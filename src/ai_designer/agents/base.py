@@ -103,7 +103,9 @@ class BaseAgent(ABC):
         return LLMRequest(
             messages=messages,
             model=self.llm_provider.default_model,
-            temperature=temperature if temperature is not None else self.default_temperature,
+            temperature=temperature
+            if temperature is not None
+            else self.default_temperature,
             max_tokens=max_tokens,
         )
 

@@ -23,7 +23,11 @@ from ai_designer.api.deps import (
 from ai_designer.export.exporter import CADExporter
 from ai_designer.orchestration.pipeline import PipelineExecutor
 from ai_designer.redis_utils.audit import AuditEventType
-from ai_designer.schemas.api_schemas import DesignCreateRequest, DesignResponse, DesignStatusResponse
+from ai_designer.schemas.api_schemas import (
+    DesignCreateRequest,
+    DesignResponse,
+    DesignStatusResponse,
+)
 from ai_designer.schemas.design_state import DesignRequest as DesignRequestSchema
 from ai_designer.schemas.design_state import DesignState, ExecutionStatus
 
@@ -363,15 +367,15 @@ async def export_design(
                         request_id=UUID(request_id),
                         format=format,
                         file_path=result.file_path,
-                        file_size=result.metadata.file_size_bytes if result.metadata else 0,
+                        file_size=result.metadata.file_size_bytes
+                        if result.metadata
+                        else 0,
                         cache_hit=result.cache_hit,
                     )
                 except Exception as audit_error:
                     logger.warning(f"Audit logging failed: {audit_error}")
 
-        logger.info(
-            f"Export completed for {request_id}: {list(export_results.keys())}"
-        )
+        logger.info(f"Export completed for {request_id}: {list(export_results.keys())}")
 
         return response
 

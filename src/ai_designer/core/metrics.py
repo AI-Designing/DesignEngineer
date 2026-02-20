@@ -31,14 +31,14 @@ logger = logging.getLogger(__name__)
 try:
     from prometheus_client import (  # type: ignore[import]
         CONTENT_TYPE_LATEST,
+        REGISTRY,
+        CollectorRegistry,
         Counter,
         Gauge,
         Histogram,
         Summary,
         generate_latest,
         multiprocess,
-        CollectorRegistry,
-        REGISTRY,
     )
 
     _PROM_AVAILABLE = True
@@ -136,6 +136,7 @@ if _PROM_AVAILABLE:
     )
 
 else:  # pragma: no cover — stubs so code won't crash if prom unavailable
+
     class _NoOp:
         """No-op stub that absorbs any attribute/call."""
 
@@ -162,6 +163,7 @@ else:  # pragma: no cover — stubs so code won't crash if prom unavailable
 
 
 # ── Helper decorators ─────────────────────────────────────────────────────────
+
 
 def track_llm_call(provider: str, model: str) -> Callable:
     """
@@ -228,6 +230,7 @@ def track_freecad_execution(func: Callable) -> Callable:
 
 
 # ── FastAPI integration ───────────────────────────────────────────────────────
+
 
 def add_metrics_route(app: Any) -> None:
     """
@@ -300,9 +303,9 @@ class PrometheusMiddleware:
             HTTP_REQUESTS_TOTAL.labels(
                 method=method, path=norm_path, status_code=str(status_code)
             ).inc()
-            HTTP_REQUEST_DURATION_SECONDS.labels(
-                method=method, path=norm_path
-            ).observe(duration)
+            HTTP_REQUEST_DURATION_SECONDS.labels(method=method, path=norm_path).observe(
+                duration
+            )
 
 
 def _normalise_path(path: str) -> str:

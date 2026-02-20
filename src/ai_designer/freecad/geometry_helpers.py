@@ -50,9 +50,7 @@ def analyze_geometry_requirements(nl_command: str) -> Dict[str, Any]:
         geometry["dimensions"]["radius"] = d / 2
 
     # Extract explicit height
-    height_match = re.search(
-        r"(\d+(?:\.\d+)?)\s*mm\s+(?:tall|high|height)", nl_command
-    )
+    height_match = re.search(r"(\d+(?:\.\d+)?)\s*mm\s+(?:tall|high|height)", nl_command)
     if height_match:
         geometry["dimensions"]["height"] = float(height_match.group(1))
 

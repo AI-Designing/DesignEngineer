@@ -74,6 +74,7 @@ def _random_id(length: int = 8) -> str:
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
 
+
 def create_design(client: Any, prompt: str | None = None) -> str | None:
     """POST /api/v1/design — returns request_id or None on failure."""
     payload = {
@@ -152,12 +153,14 @@ def export_design(client: Any, request_id: str, fmt: str | None = None) -> None:
 def refine_design(client: Any, request_id: str) -> None:
     """POST /api/v1/design/{id}/refine"""
     payload = {
-        "feedback": random.choice([
-            "Make it slightly larger",
-            "Add chamfers to the edges",
-            "Increase wall thickness to 3mm",
-            "Change the hole diameter to 12mm",
-        ])
+        "feedback": random.choice(
+            [
+                "Make it slightly larger",
+                "Add chamfers to the edges",
+                "Increase wall thickness to 3mm",
+                "Change the hole diameter to 12mm",
+            ]
+        )
     }
     with client.post(
         f"/api/v1/design/{request_id}/refine",
@@ -189,6 +192,7 @@ def delete_design(client: Any, request_id: str) -> None:
 
 
 # ── Task sets ─────────────────────────────────────────────────────────────────
+
 
 class DesignWorkflow(SequentialTaskSet):
     """
@@ -251,6 +255,7 @@ class ReadOnlyBrowsingTasks(TaskSet):
 
 # ── User classes ──────────────────────────────────────────────────────────────
 
+
 class APIUser(HttpUser):
     """
     Standard user: runs the full design workflow sequentially.
@@ -299,14 +304,16 @@ class ReadOnlyUser(HttpUser):
 
 # ── WebSocket user (optional — requires locust-plugins) ───────────────────────
 try:
-    from locust_plugins.users import WebsocketUser  # type: ignore[import]
     from locust_plugins import run_single_user  # type: ignore[import]
+    from locust_plugins.users import WebsocketUser  # type: ignore[import]
+
     _WS_AVAILABLE = True
 except ImportError:
     _WS_AVAILABLE = False
 
 
 if _WS_AVAILABLE:
+
     class WebSocketStreamUser(WebsocketUser):  # type: ignore[misc]
         """
         WebSocket streaming scenario.
@@ -328,6 +335,7 @@ if _WS_AVAILABLE:
 
 
 # ── Locust event hooks ─────────────────────────────────────────────────────────
+
 
 @events.test_start.add_listener
 def on_test_start(environment: Any, **kwargs: Any) -> None:

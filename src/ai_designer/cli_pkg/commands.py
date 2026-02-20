@@ -181,14 +181,18 @@ class CommandRunner:
         except Exception as e:
             print(f"✗ Analysis failed: {e}")
 
-    def execute_unified_command(
-        self, command: str, mode: str = "standard"
-    ) -> None:
+    def execute_unified_command(self, command: str, mode: str = "standard") -> None:
         """Execute command via the unified LLM manager."""
         try:
-            from ai_designer.llm.unified_manager import GenerationMode, LLMRequest  # noqa: F401
+            from ai_designer.llm.unified_manager import (  # noqa: F401
+                GenerationMode,
+                LLMRequest,
+            )
         except ImportError:
-            from ai_designer.llm.unified_manager import GenerationMode, LLMRequest  # noqa: F811
+            from ai_designer.llm.unified_manager import (  # noqa: F811
+                GenerationMode,
+                LLMRequest,
+            )
 
         if not self.unified_llm_manager:
             print(
@@ -313,7 +317,11 @@ class CommandRunner:
                     command_id, True, "Command completed successfully"
                 )
         else:
-            msg = result.get("message", "Execution failed") if result else "Execution failed"
+            msg = (
+                result.get("message", "Execution failed")
+                if result
+                else "Execution failed"
+            )
             print(f"❌ REAL EXECUTION FAILED: {msg}")
             if result:
                 result["execution_type"] = "REAL_FREECAD"
@@ -410,7 +418,9 @@ class CommandRunner:
                         if len(response.reasoning) > 500
                         else response.reasoning
                     )
-                    print(f"\n🧠 DeepSeek R1 Reasoning:\n{'=' * 50}\n{reasoning_preview}\n{'=' * 50}")
+                    print(
+                        f"\n🧠 DeepSeek R1 Reasoning:\n{'=' * 50}\n{reasoning_preview}\n{'=' * 50}"
+                    )
 
                 if response.freecad_code:
                     self._execute_generated_code(
@@ -442,9 +452,7 @@ class CommandRunner:
         try:
             print(f"\n🔧 Generated FreeCAD Code from {source}:")
             print(
-                freecad_code[:300] + "..."
-                if len(freecad_code) > 300
-                else freecad_code
+                freecad_code[:300] + "..." if len(freecad_code) > 300 else freecad_code
             )
 
             if self.progress_tracker:
@@ -488,9 +496,7 @@ class CommandRunner:
             if self.progress_tracker:
                 self.progress_tracker.fail_tracking(command_id, str(e))
 
-    def _save_generated_code_fallback(
-        self, freecad_code: str, source: str
-    ) -> None:
+    def _save_generated_code_fallback(self, freecad_code: str, source: str) -> None:
         """Save generated code to disk when execution fails."""
         try:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

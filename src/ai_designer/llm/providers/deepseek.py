@@ -957,5 +957,3 @@ Please generate production-ready code that creates the requested complex part.""
             "high_confidence_rate": high_confidence_count / len(recent_entries),
             "insights": insights,
         }
-
-

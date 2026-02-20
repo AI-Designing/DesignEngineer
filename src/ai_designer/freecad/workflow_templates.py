@@ -9,22 +9,51 @@ easily unit-testable in isolation.
 
 from typing import Any, Dict
 
-
 # Keyword categories (shared between functions)
 _SKETCH_OPERATIONS = ["cylinder", "extrude", "pad", "revolve", "sweep", "loft"]
 _HOLE_OPERATIONS = ["hole", "drill", "bore", "pocket", "cut"]
 _COMPLEX_INDICATORS = [
-    "bracket", "housing", "assembly", "pattern", "array", "grid",
-    "fillet", "chamfer", "shell", "multiple", "mounting", "features",
-    "complex", "gear", "mechanical", "cover", "lid",
+    "bracket",
+    "housing",
+    "assembly",
+    "pattern",
+    "array",
+    "grid",
+    "fillet",
+    "chamfer",
+    "shell",
+    "multiple",
+    "mounting",
+    "features",
+    "complex",
+    "gear",
+    "mechanical",
+    "cover",
+    "lid",
 ]
 _PATTERN_INDICATORS = [
-    "pattern", "array", "grid", "circular", "linear", "matrix",
-    "repeat", "multiple holes", "series of", "row of", "circle of",
+    "pattern",
+    "array",
+    "grid",
+    "circular",
+    "linear",
+    "matrix",
+    "repeat",
+    "multiple holes",
+    "series of",
+    "row of",
+    "circle of",
 ]
 _FEATURE_INDICATORS = [
-    "fillet", "chamfer", "round", "bevel", "shell", "hollow",
-    "rounded corners", "smooth edges", "draft angle",
+    "fillet",
+    "chamfer",
+    "round",
+    "bevel",
+    "shell",
+    "hollow",
+    "rounded corners",
+    "smooth edges",
+    "draft angle",
 ]
 _BASE_STEPS = {
     "simple": 1,
@@ -51,7 +80,9 @@ def analyze_workflow_requirements(
     """
     nl_lower = nl_command.lower()
 
-    requires_sketch = any(op in nl_lower for op in _SKETCH_OPERATIONS + _HOLE_OPERATIONS)
+    requires_sketch = any(
+        op in nl_lower for op in _SKETCH_OPERATIONS + _HOLE_OPERATIONS
+    )
     requires_face_selection = any(
         op in nl_lower for op in _HOLE_OPERATIONS + ["on face", "on surface"]
     )
@@ -62,14 +93,16 @@ def analyze_workflow_requirements(
     has_pattern_indicators = any(ind in nl_lower for ind in _PATTERN_INDICATORS)
     has_feature_indicators = any(ind in nl_lower for ind in _FEATURE_INDICATORS)
 
-    complexity_factors = sum([
-        has_complex_indicators,
-        has_pattern_indicators,
-        has_feature_indicators,
-        "and" in nl_lower,
-        len(nl_lower.split()) > 8,
-        "with" in nl_lower,
-    ])
+    complexity_factors = sum(
+        [
+            has_complex_indicators,
+            has_pattern_indicators,
+            has_feature_indicators,
+            "and" in nl_lower,
+            len(nl_lower.split()) > 8,
+            "with" in nl_lower,
+        ]
+    )
 
     has_active_body = current_state.get("live_state", {}).get("active_body", False)
     object_count = current_state.get("object_count", 0)
@@ -130,9 +163,7 @@ def estimate_step_count(nl_command: str, strategy: str) -> int:
     return _BASE_STEPS.get(strategy, 1) * modifier
 
 
-def calculate_complexity_score(
-    nl_command: str, current_state: Dict[str, Any]
-) -> float:
+def calculate_complexity_score(nl_command: str, current_state: Dict[str, Any]) -> float:
     """Return a complexity score in [0, 1] for *nl_command*.
 
     Extracted from ``StateAwareCommandProcessor._calculate_complexity_score``.
@@ -150,7 +181,14 @@ def calculate_complexity_score(
     advanced = ["fillet", "chamfer", "pattern", "array", "mirror"]
     score += 0.1 * sum(1 for t in advanced if t in nl_lower)
 
-    complex_terms = ["complex", "assembly", "multiple", "housing", "mechanical", "cover"]
+    complex_terms = [
+        "complex",
+        "assembly",
+        "multiple",
+        "housing",
+        "mechanical",
+        "cover",
+    ]
     score += 0.15 * sum(1 for t in complex_terms if t in nl_lower)
 
     pattern_terms = ["grid", "matrix", "circular", "linear", "pattern"]

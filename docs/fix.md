@@ -1,8 +1,8 @@
 # FIX_PLAN.md — Pending Implementation Guide
 
-> **Based on:** `AUDIT_REPORT.md` dated February 20, 2026  
-> **Scope:** All PARTIAL and NOT DONE items across Phases 0–3  
-> **Total items:** 17 fix tasks across 5 weeks  
+> **Based on:** `AUDIT_REPORT.md` dated February 20, 2026
+> **Scope:** All PARTIAL and NOT DONE items across Phases 0–3
+> **Total items:** 17 fix tasks across 5 weeks
 > **Execution order:** Strict — later tasks depend on earlier ones
 
 ---
@@ -25,8 +25,8 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 1 — Remove Leaked API Key from Test File
 
-**File:** `tools/testing/test_persistent_gui_fix.py:27`  
-**Prerequisites:** None  
+**File:** `tools/testing/test_persistent_gui_fix.py:27`
+**Prerequisites:** None
 **Effort:** ~10 minutes
 
 **Steps:**
@@ -43,8 +43,8 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 2 — Remove Hardcoded Paths from Config and Tools
 
-**Files:** `config/config.yaml:11`, `tools/testing/test_realtime_commands.py:185,197`, `tools/gui/simple_gui_launcher.py:115`, `tools/utilities/verify_real_objects.py:15`  
-**Prerequisites:** None  
+**Files:** `config/config.yaml:11`, `tools/testing/test_realtime_commands.py:185,197`, `tools/gui/simple_gui_launcher.py:115`, `tools/utilities/verify_real_objects.py:15`
+**Prerequisites:** None
 **Effort:** ~30 minutes
 
 **Steps:**
@@ -76,9 +76,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 3 — Create `schemas/llm_schemas.py`
 
-**Files created:** `src/ai_designer/schemas/llm_schemas.py`  
-**Files modified:** `src/ai_designer/core/llm_provider.py`, `src/ai_designer/schemas/__init__.py`  
-**Prerequisites:** None  
+**Files created:** `src/ai_designer/schemas/llm_schemas.py`
+**Files modified:** `src/ai_designer/core/llm_provider.py`, `src/ai_designer/schemas/__init__.py`
+**Prerequisites:** None
 **Effort:** ~45 minutes
 
 **Steps:**
@@ -94,9 +94,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 4 — Create `schemas/api_schemas.py`
 
-**Files created:** `src/ai_designer/schemas/api_schemas.py`  
-**Files modified:** `src/ai_designer/api/routes/design.py`, `src/ai_designer/schemas/__init__.py`  
-**Prerequisites:** Task 3  
+**Files created:** `src/ai_designer/schemas/api_schemas.py`
+**Files modified:** `src/ai_designer/api/routes/design.py`, `src/ai_designer/schemas/__init__.py`
+**Prerequisites:** Task 3
 **Effort:** ~45 minutes
 
 **Steps:**
@@ -117,9 +117,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 5 — Create `agents/base.py` — Abstract Base Agent
 
-**Files created:** `src/ai_designer/agents/base.py`, `tests/unit/agents/test_base.py`  
-**Files modified:** `src/ai_designer/agents/planner.py`, `src/ai_designer/agents/generator.py`, `src/ai_designer/agents/validator.py`, `src/ai_designer/agents/orchestrator.py`, `src/ai_designer/agents/__init__.py`  
-**Prerequisites:** Task 3  
+**Files created:** `src/ai_designer/agents/base.py`, `tests/unit/agents/test_base.py`
+**Files modified:** `src/ai_designer/agents/planner.py`, `src/ai_designer/agents/generator.py`, `src/ai_designer/agents/validator.py`, `src/ai_designer/agents/orchestrator.py`, `src/ai_designer/agents/__init__.py`
+**Prerequisites:** Task 3
 **Effort:** ~3 hours
 
 **Steps:**
@@ -153,9 +153,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 6 — Create `llm/model_config.py`
 
-**Files created:** `src/ai_designer/llm/model_config.py`  
-**Files modified:** `src/ai_designer/agents/planner.py`, `src/ai_designer/agents/generator.py`, `src/ai_designer/agents/validator.py`, `src/ai_designer/agents/orchestrator.py`, `config/config.yaml`  
-**Prerequisites:** Task 5  
+**Files created:** `src/ai_designer/llm/model_config.py`
+**Files modified:** `src/ai_designer/agents/planner.py`, `src/ai_designer/agents/generator.py`, `src/ai_designer/agents/validator.py`, `src/ai_designer/agents/orchestrator.py`, `config/config.yaml`
+**Prerequisites:** Task 5
 **Effort:** ~2 hours
 
 **Steps:**
@@ -177,8 +177,8 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 7 — Add Actual Cost Tracking to `UnifiedLLMProvider`
 
-**File modified:** `src/ai_designer/core/llm_provider.py`, `src/ai_designer/schemas/llm_schemas.py`  
-**Prerequisites:** Task 3  
+**File modified:** `src/ai_designer/core/llm_provider.py`, `src/ai_designer/schemas/llm_schemas.py`
+**Prerequisites:** Task 3
 **Effort:** ~1 hour
 
 **Steps:**
@@ -197,8 +197,8 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 8 — Add SSE Streaming to `UnifiedLLMProvider`
 
-**Files modified:** `src/ai_designer/core/llm_provider.py`, `src/ai_designer/api/routes/ws.py`  
-**Prerequisites:** Task 7  
+**Files modified:** `src/ai_designer/core/llm_provider.py`, `src/ai_designer/api/routes/ws.py`
+**Prerequisites:** Task 7
 **Effort:** ~2 hours
 
 **Steps:**
@@ -215,8 +215,8 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 9 — Update `llm/unified_manager.py` to Delegate to `UnifiedLLMProvider`
 
-**File modified:** `src/ai_designer/llm/unified_manager.py`  
-**Prerequisites:** Task 3, Task 6  
+**File modified:** `src/ai_designer/llm/unified_manager.py`
+**Prerequisites:** Task 3, Task 6
 **Effort:** ~3 hours
 
 **Context:** `unified_manager.py` uses legacy `DeepSeekR1Client` and `LLMClient` with its own dataclass-based `LLMRequest`/`LLMResponse`. It is still used by `cli.py`. The goal is to delegate under the hood to `UnifiedLLMProvider` while preserving the external interface.
@@ -240,10 +240,10 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 10 — Split `cli.py` into `cli/` Package (1,662 lines → ~4 modules)
 
-**Files created:** `src/ai_designer/cli/__init__.py`, `src/ai_designer/cli/app.py`, `src/ai_designer/cli/commands.py`, `src/ai_designer/cli/display.py`, `src/ai_designer/cli/session.py`  
-**Files deleted:** `src/ai_designer/cli.py`  
-**Files modified:** `src/ai_designer/__main__.py`  
-**Prerequisites:** Task 9  
+**Files created:** `src/ai_designer/cli/__init__.py`, `src/ai_designer/cli/app.py`, `src/ai_designer/cli/commands.py`, `src/ai_designer/cli/display.py`, `src/ai_designer/cli/session.py`
+**Files deleted:** `src/ai_designer/cli.py`
+**Files modified:** `src/ai_designer/__main__.py`
+**Prerequisites:** Task 9
 **Effort:** ~1 day
 
 **Steps:**
@@ -283,9 +283,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 11 — Reduce `state_llm_integration.py` (1,515 → ~400 lines)
 
-**Files created:** `src/ai_designer/core/state_analyzer.py`  
-**Files modified:** `src/ai_designer/core/state_llm_integration.py`  
-**Prerequisites:** Task 10  
+**Files created:** `src/ai_designer/core/state_analyzer.py`
+**Files modified:** `src/ai_designer/core/state_llm_integration.py`
+**Prerequisites:** Task 10
 **Effort:** ~1 day
 
 **Steps:**
@@ -304,9 +304,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 12 — Reduce `deepseek_client.py` (1,143 → ~300 lines)
 
-**Files created:** `src/ai_designer/llm/providers/__init__.py`, `src/ai_designer/llm/providers/deepseek.py`  
-**Files modified:** `src/ai_designer/llm/deepseek_client.py`, `src/ai_designer/llm/unified_manager.py`  
-**Prerequisites:** Task 9  
+**Files created:** `src/ai_designer/llm/providers/__init__.py`, `src/ai_designer/llm/providers/deepseek.py`
+**Files modified:** `src/ai_designer/llm/deepseek_client.py`, `src/ai_designer/llm/unified_manager.py`
+**Prerequisites:** Task 9
 **Effort:** ~1 day
 
 **Steps:**
@@ -324,9 +324,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 13 — Reduce `state_aware_processor.py` (1,970 → ~500 lines)
 
-**Files created:** `src/ai_designer/freecad/workflow_templates.py`, `src/ai_designer/freecad/geometry_helpers.py`, `src/ai_designer/freecad/state_diff.py`  
-**Files modified:** `src/ai_designer/freecad/state_aware_processor.py`  
-**Prerequisites:** Task 11  
+**Files created:** `src/ai_designer/freecad/workflow_templates.py`, `src/ai_designer/freecad/geometry_helpers.py`, `src/ai_designer/freecad/state_diff.py`
+**Files modified:** `src/ai_designer/freecad/state_aware_processor.py`
+**Prerequisites:** Task 11
 **Effort:** ~1.5 days
 
 **Steps:**
@@ -359,9 +359,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 14 — Create Production Dockerfile and Upgrade `docker-compose.yml`
 
-**Files created:** `docker/Dockerfile.production`, `docker/Dockerfile.dev`, `.dockerignore`  
-**Files modified:** `docker-compose.yml`, `Makefile`  
-**Prerequisites:** Tasks 1–13  
+**Files created:** `docker/Dockerfile.production`, `docker/Dockerfile.dev`, `.dockerignore`
+**Files modified:** `docker-compose.yml`, `Makefile`
+**Prerequisites:** Tasks 1–13
 **Effort:** ~1.5 days
 
 **Steps:**
@@ -400,9 +400,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 15 — Add Authentication and Rate-Limiting Middleware
 
-**Files created:** `src/ai_designer/api/middleware/__init__.py`, `src/ai_designer/api/middleware/auth.py`, `src/ai_designer/api/middleware/rate_limit.py`  
-**Files modified:** `src/ai_designer/api/app.py`, `src/ai_designer/api/deps.py`, `pyproject.toml`, `.env.example`  
-**Prerequisites:** Task 14  
+**Files created:** `src/ai_designer/api/middleware/__init__.py`, `src/ai_designer/api/middleware/auth.py`, `src/ai_designer/api/middleware/rate_limit.py`
+**Files modified:** `src/ai_designer/api/app.py`, `src/ai_designer/api/deps.py`, `pyproject.toml`, `.env.example`
+**Prerequisites:** Task 14
 **Effort:** ~1 day
 
 **Steps:**
@@ -440,9 +440,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 16 — Add Prometheus Metrics
 
-**Files created:** `src/ai_designer/core/metrics.py`  
-**Files modified:** `src/ai_designer/api/app.py`, `src/ai_designer/orchestration/nodes.py`, `src/ai_designer/core/llm_provider.py`, `pyproject.toml`  
-**Prerequisites:** Task 15  
+**Files created:** `src/ai_designer/core/metrics.py`
+**Files modified:** `src/ai_designer/api/app.py`, `src/ai_designer/orchestration/nodes.py`, `src/ai_designer/core/llm_provider.py`, `pyproject.toml`
+**Prerequisites:** Task 15
 **Effort:** ~1 day
 
 **Steps:**
@@ -478,9 +478,9 @@ Work top to bottom. Do not skip tasks or reorder them.
 
 ### Task 17 — Add Locust Load Tests
 
-**Files created:** `tests/load/__init__.py`, `tests/load/locustfile.py`, `tests/load/scenarios.py`  
-**Files modified:** `Makefile`  
-**Prerequisites:** Task 14 (Docker setup must exist)  
+**Files created:** `tests/load/__init__.py`, `tests/load/locustfile.py`, `tests/load/scenarios.py`
+**Files modified:** `Makefile`
+**Prerequisites:** Task 14 (Docker setup must exist)
 **Effort:** ~4 hours
 
 **Steps:**

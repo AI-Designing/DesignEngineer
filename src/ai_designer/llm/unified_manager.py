@@ -116,7 +116,9 @@ class UnifiedLLMManager:
                 default_model=gen_cfg["primary"],
                 fallback_models=[gen_cfg["fallback"]],
             )
-            logger.info("✅ litellm-backed UnifiedLLMProvider initialised for delegation")
+            logger.info(
+                "✅ litellm-backed UnifiedLLMProvider initialised for delegation"
+            )
         except Exception as _e:  # noqa: BLE001
             self._llm_provider = None
             logger.warning("⚠️ Could not initialise litellm provider: %s", _e)
@@ -219,11 +221,10 @@ class UnifiedLLMManager:
         # --- NEW: delegate to litellm-backed provider when possible ---
         if self._llm_provider is not None:
             import asyncio
-            from ai_designer.schemas.llm_schemas import (
-                LLMMessage as NewLLMMessage,
-                LLMRequest as NewLLMRequest,
-                LLMRole,
-            )
+
+            from ai_designer.schemas.llm_schemas import LLMMessage as NewLLMMessage
+            from ai_designer.schemas.llm_schemas import LLMRequest as NewLLMRequest
+            from ai_designer.schemas.llm_schemas import LLMRole
 
             new_req = NewLLMRequest(
                 messages=[NewLLMMessage(role=LLMRole.USER, content=request.command)],
@@ -248,7 +249,8 @@ class UnifiedLLMManager:
                 )
             except Exception as _e:  # noqa: BLE001
                 logger.warning(
-                    "litellm delegation failed, falling back to legacy providers: %s", _e
+                    "litellm delegation failed, falling back to legacy providers: %s",
+                    _e,
                 )
         # --- END delegation ---
 

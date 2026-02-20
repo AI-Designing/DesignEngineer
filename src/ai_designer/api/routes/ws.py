@@ -109,7 +109,11 @@ async def websocket_endpoint(websocket: WebSocket, request_id: str):
                 prompt = msg.get("prompt", "")
                 if prompt:
                     from ai_designer.api.deps import get_llm_provider
-                    from ai_designer.schemas.llm_schemas import LLMMessage, LLMRequest, LLMRole
+                    from ai_designer.schemas.llm_schemas import (
+                        LLMMessage,
+                        LLMRequest,
+                        LLMRole,
+                    )
 
                     llm_provider = get_llm_provider()
                     llm_request = LLMRequest(

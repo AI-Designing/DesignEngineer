@@ -37,7 +37,9 @@ class SessionManager:
     def show_history(self, limit: int = 10) -> None:
         """Print the last *limit* executed commands."""
         history = self.command_history[-limit:]
-        print(f"\nCommand History ({len(self.command_history)} total, showing last {len(history)}):")
+        print(
+            f"\nCommand History ({len(self.command_history)} total, showing last {len(history)}):"
+        )
         for i, cmd in enumerate(history, 1):
             print(f"{i:2d}. {cmd[:80]}{'...' if len(cmd) > 80 else ''}")
 

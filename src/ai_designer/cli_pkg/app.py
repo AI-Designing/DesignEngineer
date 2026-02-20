@@ -157,7 +157,9 @@ class FreeCADCLIApp:
             status = self.unified_llm_manager.get_provider_status()
             for provider, info in status["providers"].items():
                 icon = "✅" if info["available"] else "❌"
-                print(f"   {icon} {provider}: {'Available' if info['available'] else 'Unavailable'}")
+                print(
+                    f"   {icon} {provider}: {'Available' if info['available'] else 'Unavailable'}"
+                )
 
         except Exception as e:
             print(f"⚠️  Unified LLM Manager initialization failed: {e}")
@@ -198,7 +200,9 @@ class FreeCADCLIApp:
                         self.session.session_id,
                     )
             else:
-                print("⚠️  Persistent GUI failed to start, falling back to standard mode")
+                print(
+                    "⚠️  Persistent GUI failed to start, falling back to standard mode"
+                )
                 self.enable_persistent_gui = False
 
         # CommandExecutor
@@ -303,7 +307,9 @@ class FreeCADCLIApp:
                     body = user_input[8:].strip()
                     if " --mode " in body:
                         parts = body.split(" --mode ")
-                        runner.execute_unified_command(parts[0].strip(), parts[1].strip())
+                        runner.execute_unified_command(
+                            parts[0].strip(), parts[1].strip()
+                        )
                     else:
                         runner.execute_unified_command(body)
 
@@ -327,15 +333,20 @@ class FreeCADCLIApp:
 
                 elif cmd_lower.startswith("save "):
                     fn = user_input[5:].strip()
-                    (self.command_executor.manual_save(fn) if fn
-                     else self.command_executor.manual_save())
+                    (
+                        self.command_executor.manual_save(fn)
+                        if fn
+                        else self.command_executor.manual_save()
+                    )
 
                 elif cmd_lower in ("gui", "open", "view"):
                     result = self.command_executor.open_current_in_gui()
                     if result.get("status") == "success":
                         print("✅ Document opened in FreeCAD GUI")
                     else:
-                        print(f"❌ Failed to open in GUI: {result.get('message', 'Unknown error')}")
+                        print(
+                            f"❌ Failed to open in GUI: {result.get('message', 'Unknown error')}"
+                        )
 
                 elif cmd_lower in ("gui-on", "auto-gui-on"):
                     self.command_executor.set_auto_open_gui(True)
@@ -391,13 +402,24 @@ class FreeCADCLIApp:
                     if self.deepseek_enabled:
                         runner.execute_deepseek_command(deepseek_cmd)
                     else:
-                        print("❌ DeepSeek R1 is not enabled. Use --deepseek-enabled flag.")
+                        print(
+                            "❌ DeepSeek R1 is not enabled. Use --deepseek-enabled flag."
+                        )
 
                 elif self.deepseek_enabled and any(
                     kw in cmd_lower
-                    for kw in ("gear", "complex", "bracket", "assembly", "housing", "detailed")
+                    for kw in (
+                        "gear",
+                        "complex",
+                        "bracket",
+                        "assembly",
+                        "housing",
+                        "detailed",
+                    )
                 ):
-                    print(f"🧠 Complex command detected - using DeepSeek R1: {user_input}")
+                    print(
+                        f"🧠 Complex command detected - using DeepSeek R1: {user_input}"
+                    )
                     runner.execute_deepseek_command(user_input)
 
                 else:
@@ -471,7 +493,9 @@ class FreeCADCLIApp:
 
         perf = self.unified_llm_manager.get_performance_summary()
         if perf["total_generations"] > 0:
-            print(f"\nPerformance Summary (last {perf['total_generations']} generations):")
+            print(
+                f"\nPerformance Summary (last {perf['total_generations']} generations):"
+            )
             for prov, usage in perf["provider_usage"].items():
                 if usage > 0:
                     success_rate = perf["success_rates"][prov] * 100
@@ -509,6 +533,7 @@ class FreeCADCLIApp:
             print("❌ Command executor not initialized")
             return
         import datetime
+
         save_info = self.command_executor.get_save_info()
         print("\n💾 File Save Information:")
         print("=" * 40)
@@ -520,6 +545,7 @@ class FreeCADCLIApp:
             print(f"Last saved to: {save_info['last_saved_path']}")
             if os.path.exists(save_info["last_saved_path"]):
                 import os as _os
+
                 file_size = _os.path.getsize(save_info["last_saved_path"])
                 mod_time = datetime.datetime.fromtimestamp(
                     _os.path.getmtime(save_info["last_saved_path"])

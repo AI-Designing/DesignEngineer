@@ -198,7 +198,9 @@ class UnifiedLLMProvider:
                     # Calculate per-call cost (non-fatal if unsupported)
                     call_cost: Optional[float] = None
                     try:
-                        call_cost = litellm.completion_cost(completion_response=response)
+                        call_cost = litellm.completion_cost(
+                            completion_response=response
+                        )
                         if call_cost:
                             self.total_cost += call_cost
                     except Exception:  # noqa: BLE001
@@ -305,9 +307,7 @@ class UnifiedLLMProvider:
         else:
             return "unknown"
 
-    async def complete_stream(
-        self, request: "LLMRequest"
-    ) -> AsyncGenerator[str, None]:
+    async def complete_stream(self, request: "LLMRequest") -> AsyncGenerator[str, None]:
         """Yield content chunks from a streaming LLM completion.
 
         Uses ``litellm.acompletion`` with ``stream=True`` so the event loop is

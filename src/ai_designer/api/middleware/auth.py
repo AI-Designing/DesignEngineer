@@ -63,6 +63,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 # ── Token decoder ─────────────────────────────────────────────────────────────
 
+
 def _decode_token(token: str) -> dict[str, Any]:
     """
     Decode and verify a JWT.
@@ -138,6 +139,7 @@ async def require_auth(
 
 
 # ── Starlette middleware class ────────────────────────────────────────────────
+
 
 class AuthMiddleware:
     """

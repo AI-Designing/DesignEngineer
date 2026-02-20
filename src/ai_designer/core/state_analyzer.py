@@ -24,10 +24,10 @@ Usage in StateLLMIntegration (after migration):
 from datetime import datetime
 from typing import Any, Dict, List
 
-
 # ---------------------------------------------------------------------------
 # State summarization helpers
 # ---------------------------------------------------------------------------
+
 
 def summarize_state(state: Dict[str, Any]) -> str:
     """Return a compact one-line summary of the current FreeCAD document state.
@@ -107,6 +107,7 @@ def summarize_objects(objects: List[Dict[str, Any]]) -> str:
 # Quality metrics
 # ---------------------------------------------------------------------------
 
+
 def calculate_quality_metrics(state: Dict[str, Any]) -> Dict[str, float]:
     """Compute heuristic quality metrics from a state dict.
 
@@ -133,8 +134,16 @@ def calculate_quality_metrics(state: Dict[str, Any]) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 
 _COMPLEXITY_KEYWORDS = [
-    "complex", "advanced", "intricate", "detailed", "parametric",
-    "tower", "building", "assembly", "multiple", "combined",
+    "complex",
+    "advanced",
+    "intricate",
+    "detailed",
+    "parametric",
+    "tower",
+    "building",
+    "assembly",
+    "multiple",
+    "combined",
 ]
 
 
@@ -175,6 +184,7 @@ def fallback_complexity_analysis(user_input: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Constraint / goal / quality requirement helpers
 # ---------------------------------------------------------------------------
+
 
 def analyze_constraints(
     current_state: Dict[str, Any],

@@ -53,9 +53,7 @@ try:
     _REDIS_AVAILABLE = True
 except ModuleNotFoundError:  # pragma: no cover
     _REDIS_AVAILABLE = False
-    logger.warning(
-        "redis package not installed. Rate limiting will be disabled."
-    )
+    logger.warning("redis package not installed. Rate limiting will be disabled.")
 
 
 def _get_redis_pool() -> Any | None:
@@ -88,6 +86,7 @@ def _redis() -> Any | None:
 
 
 # ── Rate-limit logic ──────────────────────────────────────────────────────────
+
 
 async def _check_rate_limit(
     client_key: str,
@@ -138,6 +137,7 @@ async def _check_rate_limit(
 
 
 # ── Middleware class ──────────────────────────────────────────────────────────
+
 
 class RateLimitMiddleware:
     """

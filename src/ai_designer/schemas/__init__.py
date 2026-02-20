@@ -8,6 +8,11 @@ This package provides type-safe data structures for:
 - Agent communication
 """
 
+from ai_designer.schemas.api_schemas import (
+    DesignCreateRequest,
+    DesignResponse,
+    DesignStatusResponse,
+)
 from ai_designer.schemas.design_state import (
     AgentType,
     DesignRequest,
@@ -15,23 +20,18 @@ from ai_designer.schemas.design_state import (
     ExecutionStatus,
     IterationState,
 )
-from ai_designer.schemas.task_graph import (
-    TaskDependency,
-    TaskGraph,
-    TaskNode,
-    TaskStatus,
-)
-from ai_designer.schemas.api_schemas import (
-    DesignCreateRequest,
-    DesignResponse,
-    DesignStatusResponse,
-)
 from ai_designer.schemas.llm_schemas import (
     LLMMessage,
     LLMProvider,
     LLMRequest,
     LLMResponse,
     LLMRole,
+)
+from ai_designer.schemas.task_graph import (
+    TaskDependency,
+    TaskGraph,
+    TaskNode,
+    TaskStatus,
 )
 from ai_designer.schemas.validation import (
     GeometricValidation,

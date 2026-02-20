@@ -8,10 +8,10 @@ functions have side-effects beyond printing.
 
 from typing import Any, Dict, List, Optional
 
-
 # ---------------------------------------------------------------------------
 # Workflow results
 # ---------------------------------------------------------------------------
+
 
 def display_workflow_results(result: Dict[str, Any], original_command: str) -> None:
     """Print the outcome of a multi-step workflow execution.
@@ -35,13 +35,20 @@ def display_workflow_results(result: Dict[str, Any], original_command: str) -> N
         for i, step in enumerate(steps, 1):
             step_status = step.get("status", "?")
             step_msg = step.get("message", step.get("command", ""))
-            icon = "✅" if step_status == "success" else "⚠️" if step_status == "warning" else "❌"
+            icon = (
+                "✅"
+                if step_status == "success"
+                else "⚠️"
+                if step_status == "warning"
+                else "❌"
+            )
             print(f"  {icon} Step {i}: {step_msg[:70]}")
 
 
 # ---------------------------------------------------------------------------
 # State display
 # ---------------------------------------------------------------------------
+
 
 def show_state(state: Dict[str, Any]) -> None:
     """Print a human-readable summary of the current FreeCAD document state.
@@ -59,6 +66,7 @@ def show_state(state: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # WebSocket / GUI status
 # ---------------------------------------------------------------------------
+
 
 def show_websocket_status(
     enable_websocket: bool,
