@@ -176,16 +176,9 @@ class PipelineNodes:
                 user_prompt=state.design_state.user_prompt,
             )
 
-            # Include validation feedback if refining
-            feedback = None
-            if state.validation_result and state.workflow_iteration > 1:
-                feedback = state.validation_result.refinement_suggestions
-
             # Call generator agent
             scripts = await self.generator.generate(
-                request=request,
                 task_graph=state.task_graph,
-                refinement_feedback=feedback,
             )
 
             # Update state
@@ -342,7 +335,7 @@ class PipelineNodes:
 
             # Call validator agent
             validation = await self.validator.validate(
-                request=request,
+                design_request=request,
                 task_graph=state.task_graph,
                 generated_scripts=state.generated_scripts,
                 execution_result=state.execution_result,

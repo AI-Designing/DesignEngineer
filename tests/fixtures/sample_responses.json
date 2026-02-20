@@ -1,0 +1,204 @@
+{
+  "planner_responses": {
+    "simple_box": {
+      "task_graph_id": "tg_box_001",
+      "tasks": [
+        {
+          "id": "task_1",
+          "type": "create_sketch",
+          "description": "Create rectangular sketch 10x10mm on XY plane",
+          "dependencies": [],
+          "parameters": {
+            "shape": "rectangle",
+            "width": 10,
+            "height": 10,
+            "plane": "XY"
+          }
+        },
+        {
+          "id": "task_2",
+          "type": "pad",
+          "description": "Extrude sketch to create 10mm height box",
+          "dependencies": ["task_1"],
+          "parameters": {
+            "length": 10,
+            "direction": "normal"
+          }
+        }
+      ],
+      "reasoning": "Simple box requires base sketch and single pad operation"
+    },
+    "cylinder": {
+      "task_graph_id": "tg_cyl_001",
+      "tasks": [
+        {
+          "id": "task_1",
+          "type": "create_sketch",
+          "description": "Create circular sketch diameter 20mm",
+          "dependencies": [],
+          "parameters": {
+            "shape": "circle",
+            "diameter": 20,
+            "plane": "XY"
+          }
+        },
+        {
+          "id": "task_2",
+          "type": "pad",
+          "description": "Extrude to 30mm height",
+          "dependencies": ["task_1"],
+          "parameters": {
+            "length": 30
+          }
+        }
+      ],
+      "reasoning": "Cylinder requires circular sketch and extrusion"
+    },
+    "box_with_hole": {
+      "task_graph_id": "tg_box_hole_001",
+      "tasks": [
+        {
+          "id": "task_1",
+          "type": "create_sketch",
+          "description": "Create base box sketch",
+          "dependencies": [],
+          "parameters": {
+            "shape": "rectangle",
+            "width": 30,
+            "height": 30
+          }
+        },
+        {
+          "id": "task_2",
+          "type": "pad",
+          "description": "Extrude base to 20mm",
+          "dependencies": ["task_1"],
+          "parameters": {
+            "length": 20
+          }
+        },
+        {
+          "id": "task_3",
+          "type": "create_sketch",
+          "description": "Create hole sketch on top face",
+          "dependencies": ["task_2"],
+          "parameters": {
+            "shape": "circle",
+            "diameter": 10,
+            "face": "top"
+          }
+        },
+        {
+          "id": "task_4",
+          "type": "pocket",
+          "description": "Cut hole through all",
+          "dependencies": ["task_3"],
+          "parameters": {
+            "type": "through_all"
+          }
+        }
+      ],
+      "reasoning": "Box with hole requires base solid then pocket operation"
+    }
+  },
+  "generator_responses": {
+    "box_script": "import FreeCAD as App\\nimport Part\\nimport PartDesign\\n\\ndoc = App.newDocument('Box')\\nbody = doc.addObject('PartDesign::Body', 'Body')\\n\\nsketch = doc.addObject('Sketcher::SketchObject', 'Sketch')\\nbody.addObject(sketch)\\n\\npad = doc.addObject('PartDesign::Pad', 'Pad')\\nbody.addObject(pad)\\npad.Profile = sketch\\npad.Length = 10\\n\\ndoc.recompute()\\nprint('CREATED_OBJECT: Body')\\n",
+    "cylinder_script": "import FreeCAD as App\\nimport Part\\nimport PartDesign\\n\\ndoc = App.newDocument('Cylinder')\\nbody = doc.addObject('PartDesign::Body', 'Body')\\n\\nsketch = doc.addObject('Sketcher::SketchObject', 'Sketch')\\nbody.addObject(sketch)\\ncircle = Part.Circle(App.Vector(0,0,0), App.Vector(0,0,1), 10)\\nsketch.addGeometry(circle)\\n\\npad = doc.addObject('PartDesign::Pad', 'Pad')\\npad.Length = 20\\n\\ndoc.recompute()\\n"
+  },
+  "validator_responses": {
+    "valid_design": {
+      "is_valid": true,
+      "overall_score": 0.92,
+      "scores": {
+        "geometric_validity": 0.95,
+        "intent_match": 0.90,
+        "completeness": 0.90,
+        "best_practices": 0.92
+      },
+      "issues": [],
+      "suggestions": [
+        "Consider adding fillet to edges for manufacturing",
+        "Add dimensional constraints for parametric editing"
+      ],
+      "reasoning": "Design is geometrically sound and matches user intent. All dimensions are correct and the part is manufacturable."
+    },
+    "invalid_geometry": {
+      "is_valid": false,
+      "overall_score": 0.35,
+      "scores": {
+        "geometric_validity": 0.10,
+        "intent_match": 0.60,
+        "completeness": 0.50,
+        "best_practices": 0.20
+      },
+      "issues": [
+        "Self-intersecting geometry detected",
+        "Zero-volume solid",
+        "Sketch has open contours"
+      ],
+      "suggestions": [
+        "Close all sketch contours",
+        "Fix overlapping geometry",
+        "Ensure positive extrusion length"
+      ],
+      "reasoning": "Design has critical geometric errors that prevent successful recompute. Sketch must be fully constrained with closed contours."
+    },
+    "intent_mismatch": {
+      "is_valid": false,
+      "overall_score": 0.45,
+      "scores": {
+        "geometric_validity": 0.85,
+        "intent_match": 0.30,
+        "completeness": 0.40,
+        "best_practices": 0.50
+      },
+      "issues": [
+        "Requested 4 holes but only 2 created",
+        "Dimensions don't match specification (got 20mm, expected 30mm)",
+        "Missing fillet features"
+      ],
+      "suggestions": [
+        "Add 2 more holes to match specification",
+        "Correct extrusion length to 30mm",
+        "Add requested fillets"
+      ],
+      "reasoning": "While geometrically valid, design doesn't match user requirements. Missing features and incorrect dimensions."
+    },
+    "incomplete_design": {
+      "is_valid": false,
+      "overall_score": 0.55,
+      "scores": {
+        "geometric_validity": 0.80,
+        "intent_match": 0.70,
+        "completeness": 0.30,
+        "best_practices": 0.50
+      },
+      "issues": [
+        "Missing mounting holes",
+        "No material specified",
+        "Draft angles not included"
+      ],
+      "suggestions": [
+        "Add mounting holes as specified",
+        "Include draft angles for manufacturability",
+        "Complete all requested features"
+      ],
+      "reasoning": "Design partially complete but missing several requested features."
+    }
+  },
+  "error_responses": {
+    "rate_limit": {
+      "error": "Rate limit exceeded",
+      "retry_after": 60
+    },
+    "invalid_api_key": {
+      "error": "Authentication failed: Invalid API key"
+    },
+    "timeout": {
+      "error": "Request timeout after 30s"
+    },
+    "max_tokens": {
+      "error": "Maximum token limit exceeded"
+    }
+  }
+}

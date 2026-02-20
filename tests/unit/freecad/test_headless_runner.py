@@ -76,7 +76,7 @@ Execution completed successfully
         with patch("subprocess.run", return_value=mock_result):
             result = await headless_runner.execute_script(
                 script="box = Part.makeBox(10, 10, 10)",
-                prompt="Create a box",
+                user_prompt="Create a box",
                 request_id="test-123",
             )
 
@@ -98,7 +98,7 @@ Execution completed successfully
         with patch("subprocess.run", return_value=mock_result):
             result = await headless_runner.execute_script(
                 script="invalid python code",
-                prompt="Test error",
+                user_prompt="Test error",
                 request_id="test-error",
             )
 
@@ -121,7 +121,7 @@ Execution completed
         with patch("subprocess.run", return_value=mock_result):
             result = await headless_runner.execute_script(
                 script="box = Part.makeBox(10, 10, 10)",
-                prompt="Create box with warnings",
+                user_prompt="Create box with warnings",
                 request_id="test-warning",
             )
 
@@ -148,9 +148,8 @@ Execution completed
             with patch("asyncio.sleep"):  # Mock sleep to speed up test
                 result = await headless_runner.execute_script(
                     script="box = Part.makeBox(10, 10, 10)",
-                    prompt="Test retry",
+                    user_prompt="Test retry",
                     request_id="test-retry",
-                    max_retries=3,
                 )
 
         assert result.success is True
@@ -167,9 +166,8 @@ Execution completed
         ):
             result = await headless_runner.execute_script(
                 script="# Long running script",
-                prompt="Test timeout",
+                user_prompt="Test timeout",
                 request_id="test-timeout",
-                timeout=30,
             )
 
         assert result.success is False
@@ -192,7 +190,7 @@ RECOMPUTE_SUCCESS
         with patch("subprocess.run", return_value=mock_result):
             result = await headless_runner.execute_script(
                 script="test",
-                prompt="Test parsing",
+                user_prompt="Test parsing",
                 request_id="test-parse",
             )
 
@@ -216,7 +214,7 @@ RECOMPUTE_SUCCESS
         with patch("subprocess.run", return_value=mock_result):
             result = await headless_runner.execute_script(
                 script="box = Part.makeBox(10, 10, 10)",
-                prompt=prompt,
+                user_prompt=prompt,
                 request_id=request_id,
             )
 
@@ -227,7 +225,7 @@ RECOMPUTE_SUCCESS
         # Verify metadata content
         metadata = json.loads(metadata_files[0].read_text())
         assert metadata["request_id"] == request_id
-        assert metadata["prompt"] == prompt
+        assert metadata["user_prompt"] == prompt
         assert "Box" in metadata["created_objects"]
         assert "timestamp" in metadata
         assert "freecad_version" in metadata
@@ -236,7 +234,7 @@ RECOMPUTE_SUCCESS
     async def test_script_template_generation(self, headless_runner):
         """Test script template generation."""
         script = "box = Part.makeBox(10, 10, 10)"
-        template = headless_runner._create_script_template(script)
+        template = headless_runner._create_script_template(script, "TestDoc")
 
         assert "import FreeCAD" in template
         assert "import Part" in template

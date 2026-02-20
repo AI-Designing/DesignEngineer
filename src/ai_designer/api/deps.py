@@ -165,9 +165,10 @@ def get_orchestrator_agent(
 
     if _orchestrator_agent is None:
         _orchestrator_agent = OrchestratorAgent(
-            planner_agent=planner,
-            generator_agent=generator,
-            validator_agent=validator,
+            llm_provider=get_llm_provider(),
+            planner=planner,
+            generator=generator,
+            validator=validator,
             max_iterations=5,
             enable_refinement=True,
         )

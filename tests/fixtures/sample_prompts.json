@@ -1,0 +1,36 @@
+{
+  "simple": [
+    "Create a 10x10x10mm cube",
+    "Design a cylinder with diameter 20mm and height 30mm",
+    "Make a rectangular box 50x30x20mm",
+    "Build a disc with radius 15mm and thickness 3mm",
+    "Create a tube with outer diameter 25mm, inner diameter 20mm, height 40mm"
+  ],
+  "intermediate": [
+    "Create an L-bracket 50x50mm with 10mm thickness and 5mm fillet radii",
+    "Design a mounting bracket with 4 holes 8mm diameter on a 40x40mm square pattern",
+    "Build a washer with outer diameter 20mm, inner diameter 10mm, thickness 2mm",
+    "Make a box 60x40x30mm with rounded corners 5mm radius",
+    "Create a standoff 20mm height with M6 threads and 10mm diameter flange",
+    "Design a T-joint pipe fitting with 20mm diameter pipes",
+    "Build a corner bracket 30x30mm with 3 mounting holes"
+  ],
+  "complex": [
+    "Create a gear wheel with 20 teeth, 50mm pitch diameter, 5mm module, and 8mm thick",
+    "Design a circular flange 80mm diameter with 6 mounting holes M8 on 60mm bolt circle",
+    "Build a threaded bolt M10x30 with hex head 17mm across flats",
+    "Create a helical spring with 10 coils, 20mm outer diameter, 2mm wire thickness",
+    "Design a ribbed housing 100x80x60mm with 5 ribs on each side",
+    "Build a planetary gear system with sun gear, 3 planet gears, and ring gear",
+    "Create a cam follower assembly with eccentric cam and roller bearing"
+  ],
+  "edge_cases": [
+    "",
+    "a",
+    "Create something",
+    "Design a part with negative dimensions: -10x-20x-30mm",
+    "Make a box with zero thickness",
+    "Build a cylinder with radius 1000000mm",
+    "Create a gear with 1 tooth"
+  ]
+}

@@ -128,6 +128,24 @@ class TaskGraph(BaseModel):
         default_factory=datetime.utcnow, description="Last update time"
     )
 
+    @property
+    def complexity_score(self) -> float:
+        """Compute a complexity score based on task count and dependency depth.
+
+        Returns:
+            Float between 0.0 and 1.0 representing relative complexity.
+        """
+        if not self.nodes:
+            return 0.0
+        task_count = len(self.nodes)
+        dep_count = len(self.edges)
+        levels = self.get_execution_order()
+        depth = len(levels) if levels else 1
+        # Weighted formula: tasks, deps, and depth all contribute
+        raw = (task_count * 0.4) + (dep_count * 0.3) + (depth * 0.3)
+        # Normalize to 0-1 range (10 is "very complex")
+        return min(raw / 10.0, 1.0)
+
     def add_task(self, task: TaskNode) -> None:
         """Add a task node to the graph."""
         self.nodes[task.task_id] = task

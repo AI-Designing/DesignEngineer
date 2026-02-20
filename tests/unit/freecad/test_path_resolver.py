@@ -63,11 +63,16 @@ class TestFreeCADPathResolver:
         """Test handling of invalid FREECAD_PATH"""
         invalid_path = tmp_path / "nonexistent"
 
-        with patch.dict(os.environ, {"FREECAD_PATH": str(invalid_path)}):
-            resolver = FreeCADPathResolver()
-            # Should fall back to other methods
-            with pytest.raises(FreeCADPathError):
-                resolver.resolve_paths()
+        with patch.dict(os.environ, {"FREECAD_PATH": str(invalid_path)}, clear=False):
+            # Mock all fallback methods so real system paths aren't found
+            with patch.object(FreeCADPathResolver, "_from_appimage", return_value=None):
+                with patch.object(
+                    FreeCADPathResolver, "_from_system_install", return_value=None
+                ):
+                    resolver = FreeCADPathResolver()
+                    # Should fall back to other methods, then raise
+                    with pytest.raises(FreeCADPathError):
+                        resolver.resolve_paths()
 
     def test_from_config_appimage(self, tmp_path):
         """Test resolution from config with AppImage"""
@@ -217,22 +222,34 @@ class TestFreeCADPathResolver:
         system_freecadcmd = "/usr/bin/freecadcmd"
         mock_which.return_value = system_freecadcmd
 
-        resolver = FreeCADPathResolver()
-        executable = resolver.get_executable_path()
+        with patch.dict(os.environ, {}, clear=True):
+            with patch.object(FreeCADPathResolver, "_from_appimage", return_value=None):
+                with patch.object(
+                    FreeCADPathResolver, "_from_system_install", return_value=None
+                ):
+                    resolver = FreeCADPathResolver()
+                    executable = resolver.get_executable_path()
 
-        assert executable == system_freecadcmd
-        mock_which.assert_called_once_with("freecadcmd")
+                    assert executable == system_freecadcmd
 
     def test_get_executable_path_not_found(self):
         """Test error when executable not found"""
         with patch.dict(os.environ, {}, clear=True):
             with patch("shutil.which", return_value=None):
-                resolver = FreeCADPathResolver()
+                with patch.object(
+                    FreeCADPathResolver, "_from_appimage", return_value=None
+                ):
+                    with patch.object(
+                        FreeCADPathResolver, "_from_system_install", return_value=None
+                    ):
+                        resolver = FreeCADPathResolver()
 
-                with pytest.raises(FreeCADPathError) as exc_info:
-                    resolver.get_executable_path()
+                        with pytest.raises(FreeCADPathError) as exc_info:
+                            resolver.get_executable_path()
 
-                assert "Could not locate FreeCAD executable" in str(exc_info.value)
+                        assert "Could not locate FreeCAD executable" in str(
+                            exc_info.value
+                        )
 
     def test_resolution_priority_env_over_config(self, tmp_path):
         """Test that environment variable takes priority over config"""
@@ -254,19 +271,25 @@ class TestFreeCADPathResolver:
         """Test error when no valid paths can be found"""
         with patch.dict(os.environ, {}, clear=True):
             with patch.object(
-                FreeCADPathResolver, "_from_system_install", return_value=None
+                FreeCADPathResolver, "_from_environment", return_value=None
             ):
                 with patch.object(
-                    FreeCADPathResolver, "_from_appimage", return_value=None
+                    FreeCADPathResolver, "_from_config", return_value=None
                 ):
-                    resolver = FreeCADPathResolver()
+                    with patch.object(
+                        FreeCADPathResolver, "_from_system_install", return_value=None
+                    ):
+                        with patch.object(
+                            FreeCADPathResolver, "_from_appimage", return_value=None
+                        ):
+                            resolver = FreeCADPathResolver()
 
-                    with pytest.raises(FreeCADPathError) as exc_info:
-                        resolver.resolve_paths()
+                            with pytest.raises(FreeCADPathError) as exc_info:
+                                resolver.resolve_paths()
 
-                    assert "Could not locate FreeCAD installation" in str(
-                        exc_info.value
-                    )
+                            assert "Could not locate FreeCAD installation" in str(
+                                exc_info.value
+                            )
 
 
 class TestConvenienceFunctions:

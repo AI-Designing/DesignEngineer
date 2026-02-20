@@ -93,6 +93,10 @@ class CADExporter:
         self.cache_index_path = self.cache_dir / "export_cache_index.json"
         self._cache_index = self._load_cache_index()
 
+        # Ensure cache index file exists
+        if not self.cache_index_path.exists():
+            self._save_cache_index()
+
         logger.info(
             f"Initialized CADExporter: outputs_dir={outputs_dir}, "
             f"cache_enabled={enable_cache}"
