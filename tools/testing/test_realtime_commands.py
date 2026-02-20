@@ -182,7 +182,7 @@ def test_real_time_commands():
             time.sleep(3)
 
     # Show files location
-    outputs_dir = "/home/vansh5632/DesignEng/freecad-llm-automation/outputs"
+    outputs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "outputs")
     if os.path.exists(outputs_dir):
         files = [f for f in os.listdir(outputs_dir) if f.endswith(".FCStd")]
         if files:
@@ -194,7 +194,7 @@ def test_real_time_commands():
 
 def open_existing_file_in_gui():
     """Helper to open an existing file in GUI"""
-    outputs_dir = "/home/vansh5632/DesignEng/freecad-llm-automation/outputs"
+    outputs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "outputs")
     if os.path.exists(outputs_dir):
         files = [f for f in os.listdir(outputs_dir) if f.endswith(".FCStd")]
         if files:

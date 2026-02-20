@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from ai_designer.api.middleware import AuthMiddleware, RateLimitMiddleware
 from ai_designer.api.routes import design, health, ws
 from ai_designer.core.exceptions import (
     AgentError,
@@ -20,6 +21,7 @@ from ai_designer.core.exceptions import (
     FreeCADError,
     LLMError,
 )
+from ai_designer.core.metrics import instrument_app
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Rate-limit middleware (sliding window, backed by Redis)
+    app.add_middleware(RateLimitMiddleware)
+
+    # JWT auth middleware (validates Bearer tokens for protected paths)
+    app.add_middleware(AuthMiddleware)
 
     # Add request ID middleware
     @app.middleware("http")
@@ -168,5 +176,8 @@ def create_app() -> FastAPI:
     app.include_router(health.router, tags=["Health"])
     app.include_router(design.router, prefix="/api/v1", tags=["Design"])
     app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
+
+    # Prometheus middleware + /metrics route (must come after routers)
+    instrument_app(app)
 
     return app

@@ -8,7 +8,8 @@ freecad:
   # Path to FreeCAD AppImage file
   # Example: "/home/user/Downloads/FreeCAD_1.0.1-conda-Linux-x86_64-py311.AppImage"
   # Can be overridden by FREECAD_PATH environment variable
-  appimage_path: "/home/vansh5632/Downloads/FreeCAD_1.0.1-conda-Linux-x86_64-py311.AppImage"
+  # Set via FREECAD_APPIMAGE_PATH env var or leave empty for auto-detection
+  appimage_path: ""
 
   # Alternative: Explicit library and module paths (for custom installations)
   # These are auto-detected from AppImage, only set for non-standard installs
@@ -61,3 +62,26 @@ enhanced_generator:
   quality_prediction:
     enabled: true
     confidence_threshold: 0.7
+
+# LLM agent model configuration (overrides llm/model_config.py defaults)
+llm_agents:
+  planner:
+    primary: "anthropic/claude-3-5-sonnet-20241022"
+    fallback: "google/gemini-pro"
+    temperature: 0.3
+    max_tokens: 4096
+  generator:
+    primary: "openai/gpt-4o"
+    fallback: "anthropic/claude-3-5-sonnet-20241022"
+    temperature: 0.2
+    max_tokens: 4096
+  validator:
+    primary: "anthropic/claude-3-5-sonnet-20241022"
+    fallback: "openai/gpt-4o"
+    temperature: 0.3
+    max_tokens: 2048
+  orchestrator:
+    primary: "anthropic/claude-3-5-sonnet-20241022"
+    fallback: "google/gemini-pro"
+    temperature: 0.4
+    max_tokens: 2048

@@ -9,6 +9,7 @@ Tests cover:
 - Subprocess isolation
 """
 
+import subprocess
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest

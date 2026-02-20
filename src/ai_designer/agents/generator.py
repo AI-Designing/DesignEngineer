@@ -7,8 +7,9 @@ for each task, ensuring proper syntax, safety, and API compliance.
 
 import ast
 import json
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
+from ai_designer.agents.base import BaseAgent
 from ai_designer.core.exceptions import LLMError
 from ai_designer.core.llm_provider import (
     LLMMessage,
@@ -29,7 +30,7 @@ class ScriptValidationError(Exception):
     pass
 
 
-class GeneratorAgent:
+class GeneratorAgent(BaseAgent):
     """
     LLM-based code generator for FreeCAD Python scripts.
 
@@ -105,28 +106,17 @@ Generate FreeCAD Python code for the following task:"""
         temperature: float = 0.2,
         max_retries: int = 3,
     ):
-        """Initialize the Generator Agent.
-
-        Args:
-            llm_provider: Unified LLM provider for model interactions
-            temperature: LLM temperature for sampling (0.0-1.0, lower = more deterministic)
-            max_retries: Maximum retry attempts for generation failures
-
-        Raises:
-            ValueError: If temperature is not in [0.0, 1.0] range
-        """
-        if not 0.0 <= temperature <= 1.0:
-            raise ValueError(f"Temperature must be in [0.0, 1.0], got {temperature}")
-
-        self.llm_provider = llm_provider
-        self.agent_type = AgentType.GENERATOR
-        self.default_temperature = temperature
-        self.max_retries = max_retries
-
-        logger.info(
-            f"Initialized GeneratorAgent with temperature={temperature}, "
-            f"max_retries={max_retries}"
+        """Initialize the Generator Agent."""
+        super().__init__(
+            llm_provider=llm_provider,
+            agent_type=AgentType.GENERATOR,
+            max_retries=max_retries,
+            temperature=temperature,
         )
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:  # noqa: D102
+        """Delegate to generate() to satisfy BaseAgent contract."""
+        return await self.generate(*args, **kwargs)
 
     async def generate(
         self,

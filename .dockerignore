@@ -1,0 +1,60 @@
+# Python byte-code caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Eggs / dist info
+*.egg-info/
+dist/
+build/
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+coverage.xml
+.coverage
+.mypy_cache/
+
+# Editor / OS noise
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docs / markdown (not needed in image)
+docs/
+*.md
+!README.md
+
+# Docker files themselves (avoid recursive ADD)
+docker/
+docker-compose*.yml
+.dockerignore
+
+# Secrets / local config overrides
+.env
+.env.*
+!.env.example
+secrets/
+
+# Logs / outputs
+logs/
+outputs/
+*.log
+
+# CI
+.github/
+.circleci/

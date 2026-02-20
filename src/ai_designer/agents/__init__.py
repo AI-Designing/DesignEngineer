@@ -12,9 +12,10 @@ Each agent uses the UnifiedLLMProvider for LLM interactions and operates on
 standardized Pydantic schemas for type safety and data validation.
 """
 
+from ai_designer.agents.base import BaseAgent
 from ai_designer.agents.generator import GeneratorAgent
 from ai_designer.agents.orchestrator import OrchestratorAgent
 from ai_designer.agents.planner import PlannerAgent
 from ai_designer.agents.validator import ValidatorAgent
 
-__all__ = ["PlannerAgent", "GeneratorAgent", "ValidatorAgent", "OrchestratorAgent"]
+__all__ = ["BaseAgent", "PlannerAgent", "GeneratorAgent", "ValidatorAgent", "OrchestratorAgent"]

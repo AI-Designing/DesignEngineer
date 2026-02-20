@@ -6,8 +6,9 @@ combining geometric analysis, semantic checking, and LLM-based review.
 """
 
 import json
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
+from ai_designer.agents.base import BaseAgent
 from ai_designer.core.exceptions import LLMError
 from ai_designer.core.llm_provider import (
     LLMMessage,
@@ -29,7 +30,7 @@ from ai_designer.schemas.validation import (
 logger = get_logger(__name__)
 
 
-class ValidatorAgent:
+class ValidatorAgent(BaseAgent):
     """
     Multi-faceted validation agent for FreeCAD designs.
 
@@ -98,46 +99,32 @@ Review the following FreeCAD design:"""
         pass_threshold: float = 0.8,
         refine_threshold: float = 0.4,
     ):
-        """Initialize the Validator Agent.
-
-        Args:
-            llm_provider: Unified LLM provider for model interactions
-            temperature: LLM temperature for review generation (0.0-1.0)
-            pass_threshold: Score threshold for automatic pass
-            refine_threshold: Minimum score to attempt refinement
-
-        Raises:
-            ValueError: If temperature or thresholds are out of valid ranges
-        """
-        if not 0.0 <= temperature <= 1.0:
-            raise ValueError(f"Temperature must be in [0.0, 1.0], got {temperature}")
-
+        """Initialize the Validator Agent."""
+        super().__init__(
+            llm_provider=llm_provider,
+            agent_type=AgentType.VALIDATOR,
+            max_retries=3,
+            temperature=temperature,
+        )
         if not 0.0 <= pass_threshold <= 1.0:
             raise ValueError(
                 f"Pass threshold must be in [0.0, 1.0], got {pass_threshold}"
             )
-
         if not 0.0 <= refine_threshold <= 1.0:
             raise ValueError(
                 f"Refine threshold must be in [0.0, 1.0], got {refine_threshold}"
             )
-
         if refine_threshold > pass_threshold:
             raise ValueError(
                 f"Refine threshold ({refine_threshold}) must be <= "
                 f"pass threshold ({pass_threshold})"
             )
-
-        self.llm_provider = llm_provider
-        self.agent_type = AgentType.VALIDATOR
-        self.default_temperature = temperature
         self.pass_threshold = pass_threshold
         self.refine_threshold = refine_threshold
 
-        logger.info(
-            f"Initialized ValidatorAgent with temperature={temperature}, "
-            f"pass_threshold={pass_threshold}, refine_threshold={refine_threshold}"
-        )
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:  # noqa: D102
+        """Delegate to validate() to satisfy BaseAgent contract."""
+        return await self.validate(*args, **kwargs)
 
     async def validate(
         self,

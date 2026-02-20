@@ -2,6 +2,11 @@
 Unified LLM Provider Manager
 Integrates DeepSeek R1 with existing Google Gemini and other LLM providers
 Allows seamless switching between models via CLI commands
+
+MIGRATION NOTE: New code should use ``ai_designer.core.llm_provider.UnifiedLLMProvider``
+(litellm-backed).  This manager is kept for backward compatibility with ``cli.py``
+and other legacy callers; internally it now delegates generation calls to
+``UnifiedLLMProvider`` while preserving the old dataclass-based external interface.
 """
 
 import logging
@@ -11,8 +16,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from .client import LLMClient
-from .deepseek_client import (
+from .client import LLMClient  # DEPRECATED: kept for legacy init only
+from .deepseek_client import (  # DEPRECATED: kept for legacy init only
     DeepSeekConfig,
     DeepSeekIntegrationManager,
     DeepSeekMode,
@@ -72,7 +77,11 @@ class LLMResponse:
 class UnifiedLLMManager:
     """
     Unified LLM Manager that provides seamless switching between different LLM providers
-    including Google Gemini, DeepSeek R1, and others
+    including Google Gemini, DeepSeek R1, and others.
+
+    Internally delegates to ``ai_designer.core.llm_provider.UnifiedLLMProvider``
+    (litellm-backed) for all generation calls; the legacy DeepSeek / Gemini
+    client objects are still initialised for backward compatibility only.
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -97,7 +106,22 @@ class UnifiedLLMManager:
             for provider in LLMProvider
         }
 
-        # Initialize available providers
+        # New litellm-backed provider: used by generate_command() internally
+        try:
+            from ai_designer.core.llm_provider import UnifiedLLMProvider
+            from ai_designer.llm.model_config import get_agent_config
+
+            gen_cfg = get_agent_config("generator")
+            self._llm_provider = UnifiedLLMProvider(
+                default_model=gen_cfg["primary"],
+                fallback_models=[gen_cfg["fallback"]],
+            )
+            logger.info("✅ litellm-backed UnifiedLLMProvider initialised for delegation")
+        except Exception as _e:  # noqa: BLE001
+            self._llm_provider = None
+            logger.warning("⚠️ Could not initialise litellm provider: %s", _e)
+
+        # Initialize legacy providers (backward compat)
         self._initialize_providers()
 
         logger.info("🚀 Unified LLM Manager initialized")
@@ -184,10 +208,49 @@ class UnifiedLLMManager:
         return True
 
     def generate_command(self, request: LLMRequest) -> LLMResponse:
-        """
-        Generate FreeCAD command using the appropriate LLM provider
+        """Generate FreeCAD command using the appropriate LLM provider.
+
+        Delegates to the litellm-backed ``UnifiedLLMProvider`` when available
+        (i.e. when an API key is configured and reachable).  Falls back to the
+        legacy DeepSeek / Gemini clients transparently.
         """
         start_time = time.time()
+
+        # --- NEW: delegate to litellm-backed provider when possible ---
+        if self._llm_provider is not None:
+            import asyncio
+            from ai_designer.schemas.llm_schemas import (
+                LLMMessage as NewLLMMessage,
+                LLMRequest as NewLLMRequest,
+                LLMRole,
+            )
+
+            new_req = NewLLMRequest(
+                messages=[NewLLMMessage(role=LLMRole.USER, content=request.command)],
+                model=self._llm_provider.default_model,
+                temperature=0.2,
+            )
+            try:
+                # generate() is synchronous in UnifiedLLMProvider
+                new_resp = self._llm_provider.generate(
+                    messages=new_req.messages,
+                    model=new_req.model,
+                    temperature=new_req.temperature,
+                )
+                execution_time = time.time() - start_time
+                return LLMResponse(
+                    status="success",
+                    generated_code=new_resp.content,
+                    provider=LLMProvider.AUTO,
+                    execution_time=execution_time,
+                    confidence_score=0.9,
+                    metadata={"model": new_resp.model, "usage": new_resp.usage},
+                )
+            except Exception as _e:  # noqa: BLE001
+                logger.warning(
+                    "litellm delegation failed, falling back to legacy providers: %s", _e
+                )
+        # --- END delegation ---
 
         # Determine which provider to use
         selected_provider = self._select_provider(request)

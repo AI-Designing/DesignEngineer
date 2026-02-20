@@ -17,66 +17,21 @@ Features:
 
 import os
 import time
-from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 import litellm
-from pydantic import BaseModel, Field
 
 from ai_designer.core.exceptions import LLMError
 from ai_designer.core.logging_config import get_logger
+from ai_designer.schemas.llm_schemas import (  # noqa: F401  re-exported for backward compat
+    LLMMessage,
+    LLMProvider,
+    LLMRequest,
+    LLMResponse,
+    LLMRole,
+)
 
 logger = get_logger(__name__)
-
-
-class LLMProvider(str, Enum):
-    """Supported LLM providers."""
-
-    OPENAI = "openai"
-    ANTHROPIC = "anthropic"
-    GOOGLE = "google"
-    DEEPSEEK = "deepseek"
-    OLLAMA = "ollama"
-
-
-class LLMRole(str, Enum):
-    """Message roles in conversation."""
-
-    SYSTEM = "system"
-    USER = "user"
-    ASSISTANT = "assistant"
-
-
-class LLMMessage(BaseModel):
-    """A single message in LLM conversation."""
-
-    role: LLMRole
-    content: str
-
-
-class LLMRequest(BaseModel):
-    """Request to LLM provider."""
-
-    messages: List[LLMMessage]
-    model: str = Field(
-        ...,
-        description="Model identifier (e.g., 'gpt-4o', 'claude-3-5-sonnet-20241022')",
-    )
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=None, ge=1)
-    top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    stop: Optional[List[str]] = None
-
-
-class LLMResponse(BaseModel):
-    """Response from LLM provider."""
-
-    content: str
-    model: str
-    provider: str
-    usage: Dict[str, int] = Field(default_factory=dict)
-    finish_reason: Optional[str] = None
-    latency_ms: Optional[float] = None
 
 
 class UnifiedLLMProvider:
@@ -240,6 +195,15 @@ class UnifiedLLMProvider:
 
                     self.total_requests += 1
 
+                    # Calculate per-call cost (non-fatal if unsupported)
+                    call_cost: Optional[float] = None
+                    try:
+                        call_cost = litellm.completion_cost(completion_response=response)
+                        if call_cost:
+                            self.total_cost += call_cost
+                    except Exception:  # noqa: BLE001
+                        pass
+
                     # Determine provider
                     provider = self._get_provider_from_model(model_name)
 
@@ -250,8 +214,15 @@ class UnifiedLLMProvider:
                         usage=usage,
                         finish_reason=finish_reason,
                         latency_ms=latency_ms,
+                        cost_usd=call_cost,
                     )
 
+                    logger.debug(
+                        "LLM call cost",
+                        model=model_name,
+                        cost_usd=call_cost,
+                        total_tokens=usage.get("total_tokens", 0),
+                    )
                     logger.info(
                         "LLM request successful",
                         model=model_name,
@@ -333,6 +304,52 @@ class UnifiedLLMProvider:
             return LLMProvider.OLLAMA.value
         else:
             return "unknown"
+
+    async def complete_stream(
+        self, request: "LLMRequest"
+    ) -> AsyncGenerator[str, None]:
+        """Yield content chunks from a streaming LLM completion.
+
+        Uses ``litellm.acompletion`` with ``stream=True`` so the event loop is
+        never blocked.  Streaming calls are **not** retried — any exception
+        propagates immediately as ``LLMError``.
+
+        Args:
+            request: The ``LLMRequest`` to send.
+
+        Yields:
+            Non-empty string chunks as they arrive from the model.
+
+        Raises:
+            LLMError: Immediately on any provider or network error.
+        """
+        message_dicts = [
+            {"role": m.role.value, "content": m.content} for m in request.messages
+        ]
+        try:
+            response = await litellm.acompletion(
+                model=request.model or self.default_model,
+                messages=message_dicts,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                timeout=self.timeout,
+                stream=True,
+            )
+            async for chunk in response:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        except Exception as exc:  # noqa: BLE001
+            raise LLMError(f"Streaming LLM request failed: {exc}") from exc
+
+    def get_total_cost(self) -> float:
+        """Return cumulative USD cost across all calls since last reset."""
+        return self.total_cost
+
+    def reset_cost_tracking(self) -> None:
+        """Reset only the cost counter (leaves request/token counts intact)."""
+        self.total_cost = 0.0
+        logger.info("Cost tracking reset")
 
     def get_usage_stats(self) -> Dict[str, Any]:
         """Get usage statistics."""

@@ -22,6 +22,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from ai_designer.agents.base import BaseAgent
 from ai_designer.core.llm_provider import LLMRequest, LLMRole, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType, DesignRequest
 from ai_designer.schemas.task_graph import (
@@ -34,7 +35,7 @@ from ai_designer.schemas.task_graph import (
 logger = logging.getLogger(__name__)
 
 
-class PlannerAgent:
+class PlannerAgent(BaseAgent):
     """Agent responsible for decomposing design prompts into executable task graphs.
 
     The PlannerAgent uses LLM-based reasoning to convert natural language design
@@ -116,28 +117,17 @@ Decompose the following design prompt into a task graph:"""
         temperature: float = 0.3,
         max_retries: int = 3,
     ):
-        """Initialize the Planner Agent.
-
-        Args:
-            llm_provider: Unified LLM provider for model interactions
-            temperature: LLM temperature for sampling (0.0-1.0, lower = more deterministic)
-            max_retries: Maximum retry attempts for LLM failures
-
-        Raises:
-            ValueError: If temperature is not in [0.0, 1.0] range
-        """
-        if not 0.0 <= temperature <= 1.0:
-            raise ValueError(f"Temperature must be in [0.0, 1.0], got {temperature}")
-
-        self.llm_provider = llm_provider
-        self.agent_type = AgentType.PLANNER
-        self.default_temperature = temperature
-        self.max_retries = max_retries
-
-        logger.info(
-            f"Initialized PlannerAgent with temperature={temperature}, "
-            f"max_retries={max_retries}"
+        """Initialize the Planner Agent."""
+        super().__init__(
+            llm_provider=llm_provider,
+            agent_type=AgentType.PLANNER,
+            max_retries=max_retries,
+            temperature=temperature,
         )
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:  # noqa: D102
+        """Delegate to plan() to satisfy BaseAgent contract."""
+        return await self.plan(*args, **kwargs)
 
     async def plan(
         self,

@@ -23,6 +23,18 @@ except ImportError:
     # Handle import errors gracefully for development
     pass
 
+from .state_analyzer import (  # noqa: E402
+    analyze_constraints,
+    calculate_quality_metrics,
+    define_quality_requirements,
+    extract_complexity_keywords,
+    extract_generation_goals,
+    fallback_complexity_analysis,
+    summarize_history,
+    summarize_objects,
+    summarize_state,
+)
+
 
 class AnalysisMode(Enum):
     """Defines different modes of state analysis"""
@@ -371,56 +383,15 @@ Generate a safe, executable FreeCAD command that fulfills the user's request.
 
     def _summarize_state(self, state: Dict[str, Any]) -> str:
         """Create a concise state summary for the LLM"""
-        if not state or "error" in state:
-            return "No active document or state unavailable"
-
-        summary = []
-        summary.append(f"Document: {state.get('document_name', 'Unnamed')}")
-        summary.append(f"Objects: {state.get('object_count', 0)} total")
-
-        if state.get("objects"):
-            obj_types = {}
-            for obj in state["objects"][:5]:  # Limit to 5 for brevity
-                obj_type = obj.get("type", "Unknown")
-                obj_types[obj_type] = obj_types.get(obj_type, 0) + 1
-
-            type_summary = ", ".join(
-                [f"{count} {type}" for type, count in obj_types.items()]
-            )
-            summary.append(f"Object types: {type_summary}")
-
-        return " | ".join(summary)
+        return summarize_state(state)
 
     def _summarize_history(self, history: List[Dict[str, Any]]) -> str:
         """Create a concise command history summary"""
-        if not history:
-            return "No recent commands"
-
-        recent = history[-3:]  # Last 3 commands
-        summaries = []
-
-        for cmd in recent:
-            cmd_type = cmd.get("command", "")[:30]
-            status = cmd.get("status", "unknown")
-            summaries.append(f"{cmd_type}... ({status})")
-
-        return " -> ".join(summaries)
+        return summarize_history(history)
 
     def _summarize_objects(self, objects: List[Dict[str, Any]]) -> str:
         """Create a concise objects summary"""
-        if not objects:
-            return "No objects in current document"
-
-        summaries = []
-        for obj in objects[:5]:  # Limit to 5
-            name = obj.get("name", "Unnamed")
-            obj_type = obj.get("type", "Unknown")
-            summaries.append(f"{name} ({obj_type})")
-
-        if len(objects) > 5:
-            summaries.append(f"... and {len(objects) - 5} more")
-
-        return ", ".join(summaries)
+        return summarize_objects(objects)
 
     def _parse_llm_response(
         self, response: str, context: DecisionContext
@@ -1262,112 +1233,33 @@ class EnhancedStateLLMIntegration(StateLLMIntegration):
 
     def _calculate_quality_metrics(self, state: Dict[str, Any]) -> Dict[str, float]:
         """Calculate quality metrics for current state"""
-        objects = state.get("objects", [])
-
-        return {
-            "geometric_accuracy": min(1.0, len(objects) * 0.1 + 0.5),
-            "design_consistency": 0.8 if len(objects) > 1 else 1.0,
-            "complexity_score": min(1.0, len(objects) * 0.15),
-            "manufacturability": 0.9 - (len(objects) * 0.05),
-            "performance_score": max(0.1, 1.0 - len(objects) * 0.08),
-        }
+        return calculate_quality_metrics(state)
 
     def _extract_complexity_keywords(self, user_input: str) -> List[str]:
         """Extract keywords indicating complexity"""
-        keywords = []
-        complexity_indicators = [
-            "complex",
-            "advanced",
-            "intricate",
-            "detailed",
-            "parametric",
-            "tower",
-            "building",
-            "assembly",
-            "multiple",
-            "combined",
-        ]
-
-        user_lower = user_input.lower()
-        for keyword in complexity_indicators:
-            if keyword in user_lower:
-                keywords.append(keyword)
-
-        return keywords
+        return extract_complexity_keywords(user_input)
 
     def _fallback_complexity_analysis(self, user_input: str) -> Dict[str, Any]:
         """Fallback complexity analysis when LLM is unavailable"""
-        keywords = self._extract_complexity_keywords(user_input)
-        complexity_score = min(10, len(keywords) * 2 + 3)
-
-        return {
-            "geometric_complexity": complexity_score,
-            "operation_complexity": max(3, complexity_score - 1),
-            "overall_complexity": (
-                "advanced" if complexity_score >= 7 else "intermediate"
-            ),
-            "decomposition_recommended": complexity_score >= 6,
-            "estimated_steps": max(3, complexity_score),
-            "keywords": keywords,
-            "analysis_timestamp": datetime.now().isoformat(),
-        }
+        return fallback_complexity_analysis(user_input)
 
     def _analyze_constraints(
         self, current_state: Dict[str, Any], complexity_analysis: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Analyze constraints based on current state and complexity"""
-        object_count = current_state.get("object_count", 0)
-        complexity = complexity_analysis.get("geometric_complexity", 5)
-
-        return {
-            "max_objects": max(10, 50 - object_count),
-            "memory_usage": f"{object_count * 10}MB estimated",
-            "execution_time_limit": min(300, complexity * 30),  # seconds
-            "quality_threshold": 0.8,
-            "performance_threshold": 0.7,
-        }
+        return analyze_constraints(current_state, complexity_analysis)
 
     def _extract_generation_goals(
         self, user_input: str, complexity_analysis: Dict[str, Any]
     ) -> List[str]:
         """Extract specific generation goals from user input"""
-        goals = []
-
-        # Basic goal extraction
-        if any(
-            word in user_input.lower() for word in ["create", "make", "build", "design"]
-        ):
-            goals.append("Create primary shape")
-
-        if any(
-            word in user_input.lower() for word in ["complex", "detailed", "intricate"]
-        ):
-            goals.append("Add complexity and detail")
-
-        if any(
-            word in user_input.lower() for word in ["combine", "together", "assembly"]
-        ):
-            goals.append("Combine multiple components")
-
-        # Add default goal if none found
-        if not goals:
-            goals.append("Fulfill user requirements")
-
-        return goals
+        return extract_generation_goals(user_input, complexity_analysis)
 
     def _define_quality_requirements(
         self, complexity_analysis: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Define quality requirements based on complexity analysis"""
-        complexity = complexity_analysis.get("geometric_complexity", 5)
-
-        return {
-            "minimum_accuracy": max(0.7, 1.0 - complexity * 0.05),
-            "geometric_tolerance": min(0.1, complexity * 0.01),
-            "surface_quality": max(0.8, 1.0 - complexity * 0.03),
-            "structural_integrity": 0.9,
-            "manufacturability": max(0.6, 1.0 - complexity * 0.04),
-        }
+        return define_quality_requirements(complexity_analysis)
 
     def _setup_continuous_monitoring(
         self, session_id: str, result: Dict[str, Any]

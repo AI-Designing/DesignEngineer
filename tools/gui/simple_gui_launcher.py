@@ -112,7 +112,7 @@ def test_gui_with_commands(process):
     print("\\n🧪 Testing GUI with existing files...")
 
     # Get list of recent files
-    outputs_dir = "/home/vansh5632/DesignEng/freecad-llm-automation/outputs"
+    outputs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "outputs")
     if os.path.exists(outputs_dir):
         files = [f for f in os.listdir(outputs_dir) if f.endswith(".FCStd")]
         if files:

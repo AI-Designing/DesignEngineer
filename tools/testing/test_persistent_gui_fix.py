@@ -10,6 +10,7 @@ import os
 import sys
 import time
 
+
 # Add project root to path
 sys.path.insert(0, os.path.abspath("."))
 
@@ -24,7 +25,7 @@ def test_persistent_gui_steps():
     # Create CLI with persistent GUI enabled
     cli = FreeCADCLI(
         llm_provider="google",
-        llm_api_key="AIzaSyCWUpvNYmalx0whFyG6eIIcSY__ioMSZEc",
+        llm_api_key=os.environ.get("GOOGLE_API_KEY", "test-placeholder-key"),
         enable_persistent_gui=True,
         enable_websocket=True,
     )

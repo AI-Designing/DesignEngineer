@@ -4,15 +4,22 @@ Verify that real FreeCAD objects were created by opening a saved file
 """
 
 import os
+import sys
 
 import FreeCAD
 
 
-def verify_created_objects():
-    """Open the latest saved file and verify objects exist"""
+def verify_created_objects(file_path: str = None):
+    """Open a saved FCStd file and verify objects exist.
 
-    # Path to the latest saved file
-    file_path = "/home/vansh5632/DesignEng/freecad-llm-automation/outputs/freecad_auto_save_20250818_185507_003.FCStd"
+    Args:
+        file_path: Path to the .FCStd file. If None, reads from sys.argv[1].
+    """
+    if file_path is None:
+        if len(sys.argv) < 2:
+            print("Usage: verify_real_objects.py <path/to/file.FCStd>")
+            sys.exit(1)
+        file_path = sys.argv[1]
 
     print("🔍 Verifying Real FreeCAD Objects")
     print("=" * 50)

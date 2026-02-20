@@ -1,0 +1,68 @@
+# ── Development image (single stage, includes dev tools) ─────────────────────
+FROM python:3.11-slim AS dev
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    libffi-dev \
+    libssl-dev \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install dependencies (including dev extras)
+COPY pyproject.toml setup.cfg ./
+RUN pip install --upgrade pip wheel && \
+    pip install --no-cache-dir \
+        "redis>=4.0.2" \
+        "requests>=2.25.1" \
+        "numpy>=1.21.0" \
+        "PyYAML>=6.0" \
+        "litellm>=1.17.0" \
+        "openai>=0.11.3" \
+        "google-generativeai" \
+        "langchain-core>=0.1.0" \
+        "langgraph>=0.2.0" \
+        "pydantic>=2.5.0" \
+        "pydantic-settings>=2.1.0" \
+        "python-dotenv>=1.0.0" \
+        "httpx>=0.25.0" \
+        "websockets>=10.0" \
+        "fastapi>=0.68.0" \
+        "uvicorn[standard]>=0.15.0" \
+        "networkx>=3.2.0" \
+        "structlog>=23.1.0" \
+        "colorama>=0.4.6" \
+        "prometheus-client>=0.19.0" \
+        "python-jose[cryptography]>=3.3.0" \
+        "passlib[bcrypt]>=1.7.4" \
+        # Dev-only
+        "pytest>=8.0.0" \
+        "pytest-asyncio>=0.23.0" \
+        "pytest-cov>=4.0.0" \
+        "pytest-mock>=3.12.0" \
+        "mypy>=1.8.0" \
+        "ruff>=0.3.0" \
+        "locust>=2.20.0"
+
+# Copy source in editable mode (volume-mount friendly)
+COPY src/ ./src/
+COPY config/ ./config/
+COPY pyproject.toml setup.cfg ./
+
+RUN pip install --no-deps -e . 2>/dev/null || true
+
+ENV PYTHONPATH="/app/src"
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV ENV=development
+
+EXPOSE 8000
+
+CMD ["/usr/local/bin/uvicorn", "ai_designer.api.app:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--reload", \
+     "--log-level", "debug"]

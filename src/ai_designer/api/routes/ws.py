@@ -1,7 +1,6 @@
-"""
-WebSocket endpoints for real-time design updates.
-"""
+"""WebSocket endpoints for real-time design updates."""
 
+import json
 import logging
 from typing import Any, Dict
 
@@ -99,6 +98,34 @@ async def websocket_endpoint(websocket: WebSocket, request_id: str):
                     "received": data,
                 }
             )
+
+            # Handle stream_design messages
+            try:
+                msg = json.loads(data)
+            except (json.JSONDecodeError, TypeError):
+                msg = {}
+
+            if msg.get("type") == "stream_design":
+                prompt = msg.get("prompt", "")
+                if prompt:
+                    from ai_designer.api.deps import get_llm_provider
+                    from ai_designer.schemas.llm_schemas import LLMMessage, LLMRequest, LLMRole
+
+                    llm_provider = get_llm_provider()
+                    llm_request = LLMRequest(
+                        messages=[LLMMessage(role=LLMRole.USER, content=prompt)],
+                        model=llm_provider.default_model,
+                    )
+                    try:
+                        async for chunk in llm_provider.complete_stream(llm_request):
+                            await websocket.send_json(
+                                {"type": "stream_chunk", "content": chunk}
+                            )
+                        await websocket.send_json({"type": "stream_done"})
+                    except Exception as stream_err:  # noqa: BLE001
+                        await websocket.send_json(
+                            {"type": "error", "message": str(stream_err)}
+                        )
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, request_id)

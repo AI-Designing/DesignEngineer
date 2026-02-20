@@ -10,6 +10,22 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from .geometry_helpers import (  # noqa: E402
+    analyze_geometry_requirements,
+    build_circle_sketch_script,
+    build_rectangle_sketch_script,
+)
+from .state_diff import (  # noqa: E402
+    build_checkpoint_key,
+    preflight_checks,
+    validate_final_state,
+)
+from .workflow_templates import (  # noqa: E402
+    analyze_workflow_requirements,
+    calculate_complexity_score,
+    estimate_step_count,
+)
+
 
 class StateAwareCommandProcessor:
     """
@@ -148,217 +164,18 @@ class StateAwareCommandProcessor:
     def _analyze_workflow_requirements(
         self, nl_command: str, current_state: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Analyze what type of workflow is required for the command
-
-        Returns strategy info for:
-        - sketch_then_operate: Commands requiring sketch creation followed by operations
-        - face_selection: Commands needing intelligent face selection
-        - multi_step: Complex commands requiring multiple sequential operations
-        - complex_workflow: Phase 3 complex multi-step workflows with patterns/features
-        """
-        nl_lower = nl_command.lower()
-
-        # Keywords that indicate sketch-then-operate workflow
-        sketch_operations = ["cylinder", "extrude", "pad", "revolve", "sweep", "loft"]
-        hole_operations = ["hole", "drill", "bore", "pocket", "cut"]
-
-        # Phase 3: Complex workflow indicators
-        complex_workflow_indicators = [
-            "bracket",
-            "housing",
-            "assembly",
-            "pattern",
-            "array",
-            "grid",
-            "fillet",
-            "chamfer",
-            "shell",
-            "multiple",
-            "mounting",
-            "features",
-            "complex",
-            "gear",
-            "mechanical",
-            "cover",
-            "lid",
-        ]
-
-        pattern_indicators = [
-            "pattern",
-            "array",
-            "grid",
-            "circular",
-            "linear",
-            "matrix",
-            "repeat",
-            "multiple holes",
-            "series of",
-            "row of",
-            "circle of",
-        ]
-
-        feature_indicators = [
-            "fillet",
-            "chamfer",
-            "round",
-            "bevel",
-            "shell",
-            "hollow",
-            "rounded corners",
-            "smooth edges",
-            "draft angle",
-        ]
-
-        # Analyze command structure
-        requires_sketch = any(
-            op in nl_lower for op in sketch_operations + hole_operations
-        )
-        requires_face_selection = any(
-            op in nl_lower for op in hole_operations + ["on face", "on surface"]
-        )
-        is_geometric_primitive = any(
-            term in nl_lower for term in ["cube", "box", "sphere", "cone"]
-        )
-
-        # Phase 3: Complex workflow detection
-        has_complex_indicators = any(
-            indicator in nl_lower for indicator in complex_workflow_indicators
-        )
-        has_pattern_indicators = any(
-            indicator in nl_lower for indicator in pattern_indicators
-        )
-        has_feature_indicators = any(
-            indicator in nl_lower for indicator in feature_indicators
-        )
-
-        # Count complexity factors
-        complexity_factors = sum(
-            [
-                has_complex_indicators,
-                has_pattern_indicators,
-                has_feature_indicators,
-                "and" in nl_lower,  # Multiple operations
-                len(nl_lower.split()) > 8,  # Long commands
-                "with" in nl_lower,  # Additional features
-            ]
-        )
-
-        # Check current state context
-        has_active_body = current_state.get("live_state", {}).get("active_body", False)
-        object_count = current_state.get("object_count", 0)
-
-        strategy = "simple"
-
-        # Phase 3: Complex workflow strategy selection
-        if complexity_factors >= 2 or has_complex_indicators:
-            strategy = "complex_workflow"
-        elif requires_sketch and not is_geometric_primitive:
-            strategy = "sketch_then_operate"
-        elif requires_face_selection and object_count > 0:
-            strategy = "face_selection"
-        elif object_count > 0 and ("add" in nl_lower or "attach" in nl_lower):
-            strategy = "multi_step"
-
-        # Override: If we have existing objects and are adding holes/pockets, use face selection
-        if (
-            object_count > 0
-            and any(op in nl_lower for op in hole_operations)
-            and not has_complex_indicators
-        ):
-            strategy = "face_selection"
-
-        return {
-            "strategy": strategy,
-            "requires_sketch_then_operate": strategy == "sketch_then_operate",
-            "requires_face_selection": strategy == "face_selection",
-            "is_multi_step": strategy == "multi_step",
-            "is_complex_workflow": strategy == "complex_workflow",
-            "has_pattern_indicators": has_pattern_indicators,
-            "has_feature_indicators": has_feature_indicators,
-            "complexity_factors": complexity_factors,
-            "needs_active_body": requires_sketch and not has_active_body,
-            "estimated_steps": self._estimate_step_count(nl_command, strategy),
-            "complexity_score": self._calculate_complexity_score(
-                nl_command, current_state
-            ),
-        }
+        """Analyze what type of workflow is required. Delegates to workflow_templates."""
+        return analyze_workflow_requirements(nl_command, current_state)
 
     def _estimate_step_count(self, nl_command: str, strategy: str) -> int:
-        """Estimate number of steps required for the command"""
-        base_steps = {
-            "simple": 1,
-            "sketch_then_operate": 3,  # Create body, sketch, operate
-            "face_selection": 2,  # Select face, perform operation
-            "multi_step": 4,  # Multiple operations
-            "complex_workflow": 6,  # Phase 3: Complex multi-step workflows
-        }
-
-        # Adjust based on command complexity
-        modifier = 1
-        nl_lower = nl_command.lower()
-
-        # Basic complexity adjustments
-        if "diameter" in nl_command and "height" in nl_command:
-            modifier += 1  # More constraints
-        if "mounting" in nl_command or "bracket" in nl_command:
-            modifier += 2  # Multiple features
-
-        # Phase 3: Advanced complexity adjustments
-        if any(term in nl_lower for term in ["pattern", "array", "grid"]):
-            modifier += 2  # Pattern operations
-        if any(term in nl_lower for term in ["fillet", "chamfer", "round"]):
-            modifier += 1  # Feature operations
-        if "assembly" in nl_lower or "multiple parts" in nl_lower:
-            modifier += 3  # Assembly operations
-        if nl_lower.count("and") >= 2:
-            modifier += nl_lower.count("and")  # Multiple coordinated operations
-
-        return base_steps.get(strategy, 1) * modifier
+        """Estimate number of steps. Delegates to workflow_templates."""
+        return estimate_step_count(nl_command, strategy)
 
     def _calculate_complexity_score(
         self, nl_command: str, current_state: Dict[str, Any]
     ) -> float:
-        """Calculate complexity score (0-1) for the command"""
-        score = 0.0
-        nl_lower = nl_command.lower()
-
-        # Base complexity factors
-        if len(nl_command.split()) > 10:
-            score += 0.2
-        if any(term in nl_lower for term in ["bracket", "assembly", "gear", "housing"]):
-            score += 0.3
-        if current_state.get("object_count", 0) > 0:
-            score += 0.2  # Adding to existing design
-
-        # Advanced features
-        advanced_terms = ["fillet", "chamfer", "pattern", "array", "mirror"]
-        score += 0.1 * sum(1 for term in advanced_terms if term in nl_lower)
-
-        # Phase 3: Complex workflow indicators
-        complex_terms = [
-            "complex",
-            "assembly",
-            "multiple",
-            "housing",
-            "mechanical",
-            "cover",
-        ]
-        score += 0.15 * sum(1 for term in complex_terms if term in nl_lower)
-
-        # Pattern complexity
-        pattern_terms = ["grid", "matrix", "circular", "linear", "pattern"]
-        score += 0.1 * sum(1 for term in pattern_terms if term in nl_lower)
-
-        # Multiple operations indicator
-        if "and" in nl_lower:
-            score += 0.1 * nl_lower.count("and")
-
-        # Coordination complexity
-        if any(term in nl_lower for term in ["with", "including", "plus", "also"]):
-            score += 0.1
-
-        return min(score, 1.0)
+        """Calculate complexity score (0-1). Delegates to workflow_templates."""
+        return calculate_complexity_score(nl_command, current_state)
 
     def _process_sketch_then_operate_workflow(
         self,
@@ -962,35 +779,12 @@ print(f"SUCCESS: Hole created - radius {radius}mm, depth {depth}mm")
     def _preflight_state_check(
         self, current_state: Dict[str, Any], workflow_analysis: Dict[str, Any]
     ) -> Dict[str, bool]:
-        """
-        Perform comprehensive pre-flight checks before starting workflow
-        """
-        checks = {
-            "freecad_connected": self.api_client is not None,
-            "document_available": current_state.get("live_state", {}).get(
-                "document_name"
-            )
-            is not None,
-            "no_critical_errors": current_state.get("live_state", {}).get(
-                "has_errors", True
-            )
-            == False,
-        }
-
-        # Additional checks based on workflow requirements
-        if workflow_analysis.get("needs_active_body"):
-            checks["body_ready"] = True  # We'll create it if needed
-
-        failed_checks = [check for check, passed in checks.items() if not passed]
-
-        if failed_checks:
-            return {
-                "ready": False,
-                "reason": f"Failed checks: {', '.join(failed_checks)}",
-                "suggestion": "Check FreeCAD connection and document state",
-            }
-
-        return {"ready": True}
+        """Run pre-flight checks. Delegates to state_diff."""
+        return preflight_checks(
+            current_state,
+            workflow_analysis,
+            api_client_available=self.api_client is not None,
+        )
 
     def _ensure_active_body(self) -> Dict[str, Any]:
         """
@@ -1044,61 +838,8 @@ print("SUCCESS: Active Body ready")
             }
 
     def _analyze_geometry_requirements(self, nl_command: str) -> Dict[str, Any]:
-        """
-        Analyze the command to extract geometry requirements
-
-        Example: "Create a 50mm diameter cylinder that is 100mm tall"
-        Extracts: {'shape': 'cylinder', 'diameter': 50, 'height': 100}
-        """
-        import re
-
-        geometry = {
-            "shape": "unknown",
-            "operation": "pad",  # Default operation
-            "plane": "XY",  # Default sketch plane
-            "dimensions": {},
-        }
-
-        nl_lower = nl_command.lower()
-
-        # Identify shape type
-        if "cylinder" in nl_lower:
-            geometry["shape"] = "circle"
-            geometry["operation"] = "pad"
-        elif "box" in nl_lower or "cube" in nl_lower:
-            geometry["shape"] = "rectangle"
-            geometry["operation"] = "pad"
-        elif "hole" in nl_lower:
-            geometry["shape"] = "circle"
-            geometry["operation"] = "pocket"
-
-        # Extract dimensions using regex
-        diameter_match = re.search(r"(\d+(?:\.\d+)?)\s*mm\s+diameter", nl_command)
-        if diameter_match:
-            geometry["dimensions"]["diameter"] = float(diameter_match.group(1))
-            geometry["dimensions"]["radius"] = float(diameter_match.group(1)) / 2
-
-        height_match = re.search(
-            r"(\d+(?:\.\d+)?)\s*mm\s+(?:tall|high|height)", nl_command
-        )
-        if height_match:
-            geometry["dimensions"]["height"] = float(height_match.group(1))
-
-        # Extract general dimensions
-        dimension_matches = re.findall(r"(\d+(?:\.\d+)?)\s*mm", nl_command)
-        if dimension_matches and not geometry["dimensions"]:
-            dims = [float(d) for d in dimension_matches]
-            if len(dims) >= 2:
-                if geometry["shape"] == "circle":
-                    geometry["dimensions"]["radius"] = dims[0] / 2
-                    geometry["dimensions"]["height"] = dims[1]
-                else:
-                    geometry["dimensions"]["width"] = dims[0]
-                    geometry["dimensions"]["height"] = (
-                        dims[1] if len(dims) > 1 else dims[0]
-                    )
-
-        return geometry
+        """Extract geometry requirements. Delegates to geometry_helpers."""
+        return analyze_geometry_requirements(nl_command)
 
     def _create_parametric_sketch(
         self, geometry_analysis: Dict[str, Any], current_state: Dict[str, Any]
@@ -1125,47 +866,10 @@ print("SUCCESS: Active Body ready")
     def _create_circle_sketch(
         self, dimensions: Dict[str, float], plane: str = "XY"
     ) -> Dict[str, Any]:
-        """Create a parametric circle sketch"""
-        radius = dimensions.get("radius", 25.0)  # Default 25mm radius
-
-        circle_sketch_script = f"""
-import FreeCAD
-import Part
-import Sketcher
-
-doc = FreeCAD.ActiveDocument
-
-# Get active body
-activeBody = None
-for obj in doc.Objects:
-    if hasattr(obj, 'TypeId') and obj.TypeId == 'PartDesign::Body':
-        activeBody = obj
-        break
-
-if not activeBody:
-    raise Exception("No active PartDesign Body found")
-
-# Create sketch on {plane} plane
-sketch = activeBody.newObject('Sketcher::SketchObject', 'Sketch')
-sketch.Support = (doc.getObject('{plane}_Plane'),[''])
-sketch.MapMode = 'FlatFace'
-
-# Add circle at origin
-circle = sketch.addGeometry(Part.Circle(FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(0, 0, 1), {radius}), False)
-
-# Add radius constraint
-sketch.addConstraint(Sketcher.Constraint('Radius', circle, {radius}))
-
-# Add coincident constraint to origin
-sketch.addConstraint(Sketcher.Constraint('Coincident', circle, 3, -1, 1))
-
-# Recompute
-doc.recompute()
-print(f"SUCCESS: Circle sketch created with radius {{radius}}mm")
-"""
-
+        """Create a parametric circle sketch. Delegates script building to geometry_helpers."""
+        script = build_circle_sketch_script(dimensions, plane)
         try:
-            result = self.api_client.execute_command(circle_sketch_script)
+            result = self.api_client.execute_command(script)
             return {
                 "status": "success",
                 "operation": "create_circle_sketch",
@@ -1182,63 +886,10 @@ print(f"SUCCESS: Circle sketch created with radius {{radius}}mm")
     def _create_rectangle_sketch(
         self, dimensions: Dict[str, float], plane: str = "XY"
     ) -> Dict[str, Any]:
-        """Create a parametric rectangle sketch"""
-        width = dimensions.get("width", 20.0)
-        height = dimensions.get("height", 20.0)
-
-        rectangle_sketch_script = f"""
-import FreeCAD
-import Part
-import Sketcher
-
-doc = FreeCAD.ActiveDocument
-
-# Get active body
-activeBody = None
-for obj in doc.Objects:
-    if hasattr(obj, 'TypeId') and obj.TypeId == 'PartDesign::Body':
-        activeBody = obj
-        break
-
-if not activeBody:
-    raise Exception("No active PartDesign Body found")
-
-# Create sketch on {plane} plane
-sketch = activeBody.newObject('Sketcher::SketchObject', 'Sketch')
-sketch.Support = (doc.getObject('{plane}_Plane'),[''])
-sketch.MapMode = 'FlatFace'
-
-# Add rectangle centered at origin
-x1, y1 = -{width/2}, -{height/2}
-x2, y2 = {width/2}, {height/2}
-
-# Add rectangle lines
-line1 = sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(x1, y1, 0), FreeCAD.Vector(x2, y1, 0)), False)
-line2 = sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(x2, y1, 0), FreeCAD.Vector(x2, y2, 0)), False)
-line3 = sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(x2, y2, 0), FreeCAD.Vector(x1, y2, 0)), False)
-line4 = sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(x1, y2, 0), FreeCAD.Vector(x1, y1, 0)), False)
-
-# Add constraints for rectangle
-sketch.addConstraint(Sketcher.Constraint('Coincident', line1, 2, line2, 1))
-sketch.addConstraint(Sketcher.Constraint('Coincident', line2, 2, line3, 1))
-sketch.addConstraint(Sketcher.Constraint('Coincident', line3, 2, line4, 1))
-sketch.addConstraint(Sketcher.Constraint('Coincident', line4, 2, line1, 1))
-
-# Add dimensional constraints
-sketch.addConstraint(Sketcher.Constraint('DistanceX', line1, {width}))
-sketch.addConstraint(Sketcher.Constraint('DistanceY', line2, {height}))
-
-# Center rectangle at origin
-sketch.addConstraint(Sketcher.Constraint('Symmetric', line1, 1, line1, 2, -1, 1))
-sketch.addConstraint(Sketcher.Constraint('Symmetric', line2, 1, line2, 2, -1, 2))
-
-# Recompute
-doc.recompute()
-print(f"SUCCESS: Rectangle sketch created {{width}}x{{height}}mm")
-"""
-
+        """Create a parametric rectangle sketch. Delegates script building to geometry_helpers."""
+        script = build_rectangle_sketch_script(dimensions, plane)
         try:
-            result = self.api_client.execute_command(rectangle_sketch_script)
+            result = self.api_client.execute_command(script)
             return {
                 "status": "success",
                 "operation": "create_rectangle_sketch",
@@ -1375,33 +1026,8 @@ print(f"SUCCESS: Pocket created with depth {{depth}}mm")
     def _validate_final_state(
         self, final_state: Dict[str, Any], geometry_analysis: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Validate that the final state meets expectations
-        """
-        validation = {"valid": True, "issues": [], "quality_score": 1.0}
-
-        live_state = final_state.get("live_state", {})
-
-        # Check for errors
-        if live_state.get("has_errors", False):
-            validation["valid"] = False
-            validation["issues"].append("Document contains errors")
-            validation["quality_score"] -= 0.3
-
-        # Check if operation created objects
-        object_count = final_state.get("object_count", 0)
-        if object_count == 0:
-            validation["valid"] = False
-            validation["issues"].append("No objects created")
-            validation["quality_score"] -= 0.5
-
-        # Check operation-specific requirements
-        operation = geometry_analysis.get("operation", "unknown")
-        if operation == "pad" and not live_state.get("has_pad", False):
-            validation["issues"].append("Pad operation may have failed")
-            validation["quality_score"] -= 0.2
-
-        return validation
+        """Validate final state. Delegates to state_diff."""
+        return validate_final_state(final_state, geometry_analysis)
 
     def _decompose_task(
         self, nl_command: str, current_state: Dict[str, Any]
@@ -1960,10 +1586,10 @@ doc.recompute()"""
             }
 
     def _cache_state_update(self, state: Dict[str, Any], checkpoint_name: str):
-        """Cache state update with checkpoint name"""
+        """Cache state update with checkpoint name. Uses state_diff.build_checkpoint_key."""
         try:
             if self.state_cache:
-                cache_key = f"{self.session_id}_{checkpoint_name}_{int(time.time())}"
+                cache_key = build_checkpoint_key(self.session_id, checkpoint_name)
                 self.state_cache.store_state(cache_key, state)
                 print(f"📦 State cached at checkpoint: {checkpoint_name}")
         except Exception as e:

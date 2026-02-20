@@ -1,28 +1,138 @@
 version: '3.8'
 
-services:
-  freecad:
-    image: freecad/freecad
-    container_name: freecad_container
-    volumes:
-      - ./src:/usr/src/app
-    working_dir: /usr/src/app
-    command: ["python", "main.py"]
-    networks:
-      - freecad_network
+# ─── Common build context shared by dev/prod targets ─────────────────────────
+x-app-build: &app-build
+  context: .
+  args:
+    - BUILDKIT_INLINE_CACHE=1
 
+# ─── Service definitions ──────────────────────────────────────────────────────
+services:
+
+  # ── API gateway (FastAPI) ──────────────────────────────────────────────────
+  app:
+    build:
+      <<: *app-build
+      dockerfile: docker/Dockerfile.production
+    container_name: ai_designer_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - ENV=production
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    volumes:
+      - app_outputs:/app/outputs
+    networks:
+      - backend
+
+  # ── Dev variant (hot-reload, src mounted) ─────────────────────────────────
+  app-dev:
+    build:
+      <<: *app-build
+      dockerfile: docker/Dockerfile.dev
+    container_name: ai_designer_dev
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - ENV=development
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      # Live-reload source
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - app_outputs:/app/outputs
+    networks:
+      - backend
+    profiles:
+      - dev
+
+  # ── FreeCAD headless sidecar ───────────────────────────────────────────────
+  freecad:
+    image: freecad/freecad:latest
+    container_name: freecad_sidecar
+    restart: unless-stopped
+    volumes:
+      - ./src:/usr/src/app:ro
+      - freecad_data:/freecad/data
+    working_dir: /usr/src/app
+    command: ["python", "-m", "ai_designer.__main__", "--headless"]
+    environment:
+      - PYTHONPATH=/usr/src/app
+    networks:
+      - backend
+    profiles:
+      - freecad
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
   redis:
-    image: redis:latest
-    container_name: redis_container
+    image: redis:7-alpine
+    container_name: ai_designer_redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
-      - freecad_network
+      - backend
 
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ai_designer_prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    networks:
+      - backend
+    profiles:
+      - monitoring
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
 networks:
-  freecad_network:
+  backend:
     driver: bridge
 
+# ─── Named volumes ────────────────────────────────────────────────────────────
 volumes:
   redis_data:
+    driver: local
+  app_outputs:
+    driver: local
+  freecad_data:
+    driver: local
+  prometheus_data:
     driver: local

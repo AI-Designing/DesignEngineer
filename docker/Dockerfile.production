@@ -1,0 +1,90 @@
+# ── Stage 1: build dependencies in an isolated layer ─────────────────────────
+FROM python:3.11-slim AS builder
+
+# System packages needed to compile Python extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy only dependency manifests first to leverage Docker layer caching
+COPY pyproject.toml setup.cfg ./
+COPY src/ ./src/
+
+# Create and populate a venv inside the builder stage
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip wheel && \
+    /opt/venv/bin/pip install --no-cache-dir -e ".[all]" || \
+    /opt/venv/bin/pip install --no-cache-dir \
+        "redis>=4.0.2" \
+        "requests>=2.25.1" \
+        "numpy>=1.21.0" \
+        "PyYAML>=6.0" \
+        "litellm>=1.17.0" \
+        "openai>=0.11.3" \
+        "google-generativeai" \
+        "langchain-core>=0.1.0" \
+        "langgraph>=0.2.0" \
+        "pydantic>=2.5.0" \
+        "pydantic-settings>=2.1.0" \
+        "python-dotenv>=1.0.0" \
+        "httpx>=0.25.0" \
+        "websockets>=10.0" \
+        "fastapi>=0.68.0" \
+        "uvicorn[standard]>=0.15.0" \
+        "networkx>=3.2.0" \
+        "structlog>=23.1.0" \
+        "colorama>=0.4.6" \
+        "prometheus-client>=0.19.0" \
+        "python-jose[cryptography]>=3.3.0" \
+        "passlib[bcrypt]>=1.7.4"
+
+# ── Stage 2: minimal runtime image ───────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+# Runtime system dependencies (FreeCAD headless via conda/apt not included here
+# because the real FreeCAD image provides the interpreter; this image serves the
+# API gateway that communicates with a FreeCAD sidecar via HTTP/WebSocket).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user for least-privilege operation
+RUN useradd --create-home --shell /bin/bash --uid 1001 appuser
+
+# Copy the pre-built venv from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+# Copy application source
+COPY --chown=appuser:appuser src/ ./src/
+COPY --chown=appuser:appuser config/ ./config/
+COPY --chown=appuser:appuser pyproject.toml setup.cfg ./
+
+# Install the package itself (editable install in venv)
+RUN /opt/venv/bin/pip install --no-deps -e . 2>/dev/null || true
+
+# Ensure src is on PYTHONPATH
+ENV PYTHONPATH="/app/src"
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+USER appuser
+
+# Health-check: hit the readiness probe
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+
+CMD ["/opt/venv/bin/uvicorn", "ai_designer.api.app:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "2", \
+     "--log-level", "info"]
