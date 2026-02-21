@@ -117,7 +117,9 @@ class PipelineWebSocketCallback:
                     "executor_node": AuditEventType.EXECUTION_COMPLETED,
                     "validator_node": AuditEventType.VALIDATION_PASSED,
                 }
-                event_type = event_type_map.get(node_name, AuditEventType.NODE_COMPLETED)
+                event_type = event_type_map.get(
+                    node_name, AuditEventType.NODE_COMPLETED
+                )
 
                 # Extract relevant metadata from output
                 metadata = {
@@ -143,7 +145,9 @@ class PipelineWebSocketCallback:
                 )
 
             # Send WebSocket update
-            event = format_node_complete_event(node_name, iteration, output, duration_ms)
+            event = format_node_complete_event(
+                node_name, iteration, output, duration_ms
+            )
             await self._send_websocket_update(request_id, event)
 
         except Exception as e:
@@ -411,4 +415,3 @@ def format_routing_event(
     if score is not None:
         event["score"] = score
     return event
-

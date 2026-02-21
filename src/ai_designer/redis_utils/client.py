@@ -125,7 +125,9 @@ class RedisClient:
             Entry ID (e.g., '1234567890123-0')
         """
         self._check_connection()
-        return self.connection.xadd(stream, fields, maxlen=maxlen, approximate=approximate)
+        return self.connection.xadd(
+            stream, fields, maxlen=maxlen, approximate=approximate
+        )
 
     def xrange(
         self,

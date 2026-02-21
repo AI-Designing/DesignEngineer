@@ -30,7 +30,7 @@
 | Remove hardcoded API key from `state_llm_integration.py` | ✅ | Key removed from source |
 | `.env.example` with all provider keys | ✅ | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `GOOGLE_API_KEY` all present |
 | `detect-secrets` pre-commit hook | ✅ | `.pre-commit-config.yaml` configured with `Yelp/detect-secrets v1.4.0` |
-| Leaked key still in test file | ❌ | `tools/testing/test_persistent_gui_fix.py:27` — `"AIzaSyCWUpvNYmalx0whFyG6eIIcSY__ioMSZEc"` |
+| Leaked key still in test file | ❌ | `tools/testing/test_persistent_gui_fix.py:27` — `"AIzaSyCWUpvNYmalx0whFyG6eIIcSY__ioMSZEc"` | <!-- pragma: allowlist secret -->
 
 #### Step 2: Security — Replace `exec()` with Safe Execution → ✅ DONE
 

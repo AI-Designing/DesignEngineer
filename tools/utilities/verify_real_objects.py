@@ -5,11 +5,12 @@ Verify that real FreeCAD objects were created by opening a saved file
 
 import os
 import sys
+from typing import Optional
 
 import FreeCAD
 
 
-def verify_created_objects(file_path: str = None):
+def verify_created_objects(file_path: Optional[str] = None) -> bool:
     """Open a saved FCStd file and verify objects exist.
 
     Args:

@@ -1,5 +1,6 @@
 skips:
   - B110  # try_except_pass - acceptable for cleanup code
+  - B112  # try_except_continue - acceptable for defensive iteration over Redis entries
   - B404  # subprocess import - required for FreeCAD execution
   - B102  # exec_used - required for FreeCAD scripting
   - B603  # subprocess calls - required for FreeCAD automation

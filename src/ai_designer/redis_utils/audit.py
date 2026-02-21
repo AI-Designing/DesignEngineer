@@ -76,7 +76,8 @@ class AuditEvent(BaseModel):
         default_factory=datetime.utcnow, description="Event timestamp"
     )
     agent: Optional[str] = Field(
-        default=None, description="Agent that triggered the event (planner/generator/etc)"
+        default=None,
+        description="Agent that triggered the event (planner/generator/etc)",
     )
     node: Optional[str] = Field(
         default=None, description="LangGraph node name (if applicable)"
@@ -111,9 +112,7 @@ class AuditEvent(BaseModel):
         cls, entry_id: str, fields: Dict[bytes, bytes]
     ) -> "AuditEvent":
         """Parse Redis Stream entry into AuditEvent."""
-        decoded = {
-            k.decode("utf-8"): v.decode("utf-8") for k, v in fields.items()
-        }
+        decoded = {k.decode("utf-8"): v.decode("utf-8") for k, v in fields.items()}
 
         return cls(
             event_id=entry_id,
@@ -215,7 +214,9 @@ class AuditLogger:
                 approximate=True,  # ~maxlen for better performance
             )
 
-            event.event_id = entry_id.decode("utf-8") if isinstance(entry_id, bytes) else entry_id
+            event.event_id = (
+                entry_id.decode("utf-8") if isinstance(entry_id, bytes) else entry_id
+            )
 
             # Dual-write to Pub/Sub for real-time notifications
             if self.enable_pubsub:
@@ -238,9 +239,7 @@ class AuditLogger:
                 except Exception as e:
                     logger.warning(f"Failed to publish event to Pub/Sub: {e}")
 
-            logger.debug(
-                f"Logged {event_type.value} for {request_id}: {message}"
-            )
+            logger.debug(f"Logged {event_type.value} for {request_id}: {message}")
             return event.event_id
 
         except Exception as e:
@@ -272,7 +271,9 @@ class AuditLogger:
             entries = self.redis_client.xrange(stream_key, start, end, count)
             return [
                 AuditEvent.from_stream_entry(
-                    entry_id.decode("utf-8") if isinstance(entry_id, bytes) else entry_id,
+                    entry_id.decode("utf-8")
+                    if isinstance(entry_id, bytes)
+                    else entry_id,
                     fields,
                 )
                 for entry_id, fields in entries
@@ -281,9 +282,7 @@ class AuditLogger:
             logger.error(f"Failed to retrieve audit history: {e}")
             return []
 
-    def get_recent_events(
-        self, request_id: UUID, limit: int = 10
-    ) -> List[AuditEvent]:
+    def get_recent_events(self, request_id: UUID, limit: int = 10) -> List[AuditEvent]:
         """
         Get the most recent audit events.
 
@@ -303,7 +302,9 @@ class AuditLogger:
             )
             return [
                 AuditEvent.from_stream_entry(
-                    entry_id.decode("utf-8") if isinstance(entry_id, bytes) else entry_id,
+                    entry_id.decode("utf-8")
+                    if isinstance(entry_id, bytes)
+                    else entry_id,
                     fields,
                 )
                 for entry_id, fields in entries

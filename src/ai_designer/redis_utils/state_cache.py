@@ -520,4 +520,3 @@ class StateCache:
     # =========================================================================
     # Legacy FreeCAD State Cache Methods (preserved for backwards compatibility)
     # =========================================================================
-

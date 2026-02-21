@@ -249,17 +249,11 @@ def test_get_history_retrieves_events(audit_logger):
     request_id = uuid4()
 
     # Log multiple events
-    audit_logger.log_event(
-        AuditEventType.PROMPT_RECEIVED, request_id, "Event 1"
-    )
+    audit_logger.log_event(AuditEventType.PROMPT_RECEIVED, request_id, "Event 1")
     time.sleep(0.01)  # Ensure different timestamps
-    audit_logger.log_event(
-        AuditEventType.PLAN_GENERATED, request_id, "Event 2"
-    )
+    audit_logger.log_event(AuditEventType.PLAN_GENERATED, request_id, "Event 2")
     time.sleep(0.01)
-    audit_logger.log_event(
-        AuditEventType.SCRIPT_GENERATED, request_id, "Event 3"
-    )
+    audit_logger.log_event(AuditEventType.SCRIPT_GENERATED, request_id, "Event 3")
 
     history = audit_logger.get_history(request_id)
 
@@ -299,7 +293,9 @@ def test_get_events_by_type_filters_correctly(audit_logger):
     audit_logger.log_event(AuditEventType.SCRIPT_GENERATED, request_id, "Script 1")
     audit_logger.log_event(AuditEventType.PLAN_GENERATED, request_id, "Plan 2")
 
-    plan_events = audit_logger.get_events_by_type(request_id, AuditEventType.PLAN_GENERATED)
+    plan_events = audit_logger.get_events_by_type(
+        request_id, AuditEventType.PLAN_GENERATED
+    )
 
     assert len(plan_events) == 2
     assert all(e.event_type == AuditEventType.PLAN_GENERATED for e in plan_events)
@@ -368,7 +364,9 @@ def test_retrieve_design_state(state_cache, sample_design_state):
     assert retrieved.status == sample_design_state.status
 
 
-def test_design_state_pydantic_serialization_roundtrip(state_cache, sample_design_state):
+def test_design_state_pydantic_serialization_roundtrip(
+    state_cache, sample_design_state
+):
     """Test Pydantic serialization/deserialization roundtrip."""
     # Update state with complex data
     sample_design_state.status = ExecutionStatus.GENERATING
@@ -409,9 +407,15 @@ def test_delete_design_state(state_cache, sample_design_state):
 def test_list_design_states(state_cache):
     """Test listing design states."""
     # Create multiple states
-    state1 = DesignState(request_id=uuid4(), user_prompt="Design 1", status=ExecutionStatus.PENDING)
-    state2 = DesignState(request_id=uuid4(), user_prompt="Design 2", status=ExecutionStatus.COMPLETED)
-    state3 = DesignState(request_id=uuid4(), user_prompt="Design 3", status=ExecutionStatus.PENDING)
+    state1 = DesignState(
+        request_id=uuid4(), user_prompt="Design 1", status=ExecutionStatus.PENDING
+    )
+    state2 = DesignState(
+        request_id=uuid4(), user_prompt="Design 2", status=ExecutionStatus.COMPLETED
+    )
+    state3 = DesignState(
+        request_id=uuid4(), user_prompt="Design 3", status=ExecutionStatus.PENDING
+    )
 
     state_cache.cache_design_state(state1)
     state_cache.cache_design_state(state2)

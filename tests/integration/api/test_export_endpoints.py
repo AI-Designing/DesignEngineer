@@ -63,9 +63,7 @@ class TestExportEndpoint:
     @pytest.mark.asyncio
     async def test_export_design_not_found(self, test_client):
         """Test export for non-existent design."""
-        response = test_client.get(
-            "/api/v1/design/nonexistent-id/export?formats=step"
-        )
+        response = test_client.get("/api/v1/design/nonexistent-id/export?formats=step")
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "not found" in response.json()["detail"].lower()
 
@@ -349,9 +347,7 @@ class TestDownloadEndpoint:
         _designs[str(mock_design_state.request_id)] = mock_design_state
 
         # Mock export failure
-        fail_result = ExportResult(
-            success=False, format="step", error="Export failed"
-        )
+        fail_result = ExportResult(success=False, format="step", error="Export failed")
 
         with patch(
             "ai_designer.api.routes.design.get_cad_exporter"

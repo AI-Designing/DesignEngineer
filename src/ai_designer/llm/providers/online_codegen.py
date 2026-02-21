@@ -410,7 +410,7 @@ GUIDANCE – COMPLEX SHAPES:
         return min(1.0, score)
 
     def _analyze_code_complexity(self, code: str) -> Dict[str, Any]:
-        lines = [l for l in code.split("\n") if l.strip()]
+        lines = [line for line in code.split("\n") if line.strip()]
         objects = code.count(".addObject(")
         booleans = sum(code.count(op) for op in (".cut(", ".fuse(", ".common("))
         advanced = sum(

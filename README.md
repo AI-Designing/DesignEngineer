@@ -137,9 +137,9 @@ pip install ai-designer
 ### Configuration
 1. Set your LLM API key:
    ```bash
-   export GOOGLE_API_KEY="your-api-key"
+   export GOOGLE_API_KEY="your-api-key"  # pragma: allowlist secret
    # or
-   export OPENAI_API_KEY="your-api-key"
+   export OPENAI_API_KEY="your-api-key"  # pragma: allowlist secret
    ```
 
 2. Start Redis (optional but recommended for enhanced features):
@@ -166,7 +166,7 @@ ai-designer --analyze path/to/file.FCStd
 #### Enhanced Mode (Full Features)
 ```bash
 # Run with enhanced state management and real-time features
-ai-designer --enhanced --interactive --llm-provider google --llm-api-key your-key
+ai-designer --enhanced --interactive --llm-provider google --llm-api-key your-key  # pragma: allowlist secret
 
 # Run enhanced mode with custom configuration
 ai-designer --enhanced --redis-host localhost --websocket-port 8765 --max-concurrent 5
@@ -182,7 +182,7 @@ from ai_designer import FreeCADCLI
 cli = FreeCADCLI(
     use_headless=True,
     llm_provider='google',
-    llm_api_key='your-api-key'
+    llm_api_key='your-api-key'  # pragma: allowlist secret
 )
 
 # Execute commands
@@ -199,7 +199,7 @@ config = {
     'redis_host': 'localhost',
     'redis_port': 6379,
     'llm_provider': 'google',
-    'llm_api_key': 'your-api-key',
+    'llm_api_key': 'your-api-key',  # pragma: allowlist secret
     'enable_realtime': True,
     'websocket_port': 8765
 }

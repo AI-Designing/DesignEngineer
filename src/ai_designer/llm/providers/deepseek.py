@@ -6,10 +6,6 @@ DeepSeek R1 low-level HTTP client and data models, extracted from deepseek_clien
 Import via:
     from ai_designer.llm.providers.deepseek import DeepSeekR1Client, DeepSeekConfig
 """
-"""
-DeepSeek R1 Local Client for FreeCAD Complex Part Generation
-Integrates with locally running DeepSeek R1 model for advanced 3D design generation
-"""
 
 import asyncio
 import json
