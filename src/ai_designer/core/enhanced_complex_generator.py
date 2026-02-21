@@ -1062,7 +1062,10 @@ class EnhancedComplexShapeGenerator:
     def get_deepseek_insights(self) -> Dict[str, Any]:
         """Get online code-gen client insights (legacy name kept for compatibility)."""
         if not (self.use_deepseek and self.deepseek_client):
-            return {"available": False, "message": "Online code-gen client not available"}
+            return {
+                "available": False,
+                "message": "Online code-gen client not available",
+            }
 
         try:
             return {

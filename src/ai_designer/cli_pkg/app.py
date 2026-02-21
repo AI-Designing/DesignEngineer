@@ -81,7 +81,7 @@ class FreeCADCLIApp:
         self.unified_llm_manager: Optional[UnifiedLLMManager] = None
 
         # Online code-gen client (replaces legacy local DeepSeek R1)
-        self.deepseek_enabled = True   # always on via online provider
+        self.deepseek_enabled = True  # always on via online provider
         self.deepseek_mode = deepseek_mode
         self.deepseek_port = deepseek_port
         self.deepseek_client: Optional[OnlineCodeGenClient] = None

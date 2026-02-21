@@ -41,12 +41,7 @@ logger = logging.getLogger(__name__)
 # Re-export shared data-classes from the sibling deepseek module so callers
 # that only import from here still get the canonical types.
 # ---------------------------------------------------------------------------
-from .deepseek import (  # noqa: E402
-    DeepSeekMode,
-    DeepSeekResponse,
-    ReasoningStep,
-)
-
+from .deepseek import DeepSeekMode, DeepSeekResponse, ReasoningStep  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -154,9 +149,7 @@ class OnlineCodeGenClient:
         self.performance_metrics["total_requests"] += 1
 
         if not self._litellm_available:
-            return self._error_response(
-                "litellm is not installed", start_time
-            )
+            return self._error_response("litellm is not installed", start_time)
 
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(requirements, mode, context, constraints)
@@ -175,10 +168,16 @@ class OnlineCodeGenClient:
                         retry,
                         self.config.max_retries,
                     )
-                    raw_content = self._call_litellm(model, system_prompt, user_prompt, mode)
-                    response = self._build_response(raw_content, requirements, start_time)
+                    raw_content = self._call_litellm(
+                        model, system_prompt, user_prompt, mode
+                    )
+                    response = self._build_response(
+                        raw_content, requirements, start_time
+                    )
                     self._update_metrics(response, time.time() - start_time)
-                    self._store_history(requirements, response, time.time() - start_time)
+                    self._store_history(
+                        requirements, response, time.time() - start_time
+                    )
                     return response
                 except Exception as exc:
                     logger.warning(
@@ -285,7 +284,9 @@ GUIDANCE – COMPLEX SHAPES:
 - For gears: simplified tooth or circular approximation is acceptable
 """
         if mode == DeepSeekMode.REASONING:
-            prompt += "\nProvide a brief step-by-step comment before each logical block.\n"
+            prompt += (
+                "\nProvide a brief step-by-step comment before each logical block.\n"
+            )
 
         if context:
             try:
@@ -304,12 +305,27 @@ GUIDANCE – COMPLEX SHAPES:
     def _analyze_requirement_complexity(self, requirements: str) -> str:
         r = requirements.lower()
         complex_kw = [
-            "gear", "spring", "helical", "thread", "involute", "spiral",
-            "assembly", "multiple parts", "pattern", "array",
+            "gear",
+            "spring",
+            "helical",
+            "thread",
+            "involute",
+            "spiral",
+            "assembly",
+            "multiple parts",
+            "pattern",
+            "array",
         ]
         medium_kw = [
-            "hole", "cut", "fillet", "chamfer", "bracket", "slot",
-            "groove", "revolve", "loft",
+            "hole",
+            "cut",
+            "fillet",
+            "chamfer",
+            "bracket",
+            "slot",
+            "groove",
+            "revolve",
+            "loft",
         ]
         basic_kw = ["cube", "box", "cylinder", "sphere", "cone", "simple", "basic"]
 
@@ -327,7 +343,9 @@ GUIDANCE – COMPLEX SHAPES:
         generated_code = self._extract_code(raw_content)
         confidence = self._estimate_confidence(generated_code)
         complexity_analysis = self._analyze_code_complexity(generated_code)
-        suggestions = self._optimization_suggestions(generated_code, complexity_analysis)
+        suggestions = self._optimization_suggestions(
+            generated_code, complexity_analysis
+        )
 
         reasoning_chain = [
             ReasoningStep(
@@ -412,7 +430,9 @@ GUIDANCE – COMPLEX SHAPES:
     ) -> List[str]:
         suggestions: List[str] = []
         if complexity["object_count"] > 10:
-            suggestions.append("Consider grouping related objects for better organisation")
+            suggestions.append(
+                "Consider grouping related objects for better organisation"
+            )
         if "doc.recompute()" not in code:
             suggestions.append("Add doc.recompute() to ensure proper model updates")
         if "try:" not in code:

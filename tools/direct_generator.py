@@ -16,8 +16,11 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from ai_designer.llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
 from ai_designer.llm.providers.deepseek import DeepSeekMode
+from ai_designer.llm.providers.online_codegen import (
+    OnlineCodeGenClient,
+    OnlineCodeGenConfig,
+)
 
 # Keep legacy aliases so any callers that import these names still work
 DeepSeekConfig = OnlineCodeGenConfig

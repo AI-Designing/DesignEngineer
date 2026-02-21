@@ -13,8 +13,8 @@ try:
     from .freecad.command_executor import CommandExecutor
     from .freecad.persistent_gui_client import PersistentFreeCADGUI
     from .freecad.state_manager import FreeCADStateAnalyzer
-    from .llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
     from .llm.providers.deepseek import DeepSeekMode
+    from .llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
     from .llm.unified_manager import (
         GenerationMode,
         LLMProvider,
@@ -39,8 +39,11 @@ except ImportError:
     from ai_designer.freecad.command_executor import CommandExecutor
     from ai_designer.freecad.persistent_gui_client import PersistentFreeCADGUI
     from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
-    from ai_designer.llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
     from ai_designer.llm.providers.deepseek import DeepSeekMode
+    from ai_designer.llm.providers.online_codegen import (
+        OnlineCodeGenClient,
+        OnlineCodeGenConfig,
+    )
     from ai_designer.llm.unified_manager import (
         GenerationMode,
         LLMProvider,
@@ -81,10 +84,10 @@ class FreeCADCLI:
         self.enhanced_generator = None
 
         # Legacy deepseek_* attributes kept for external compatibility
-        self.deepseek_enabled = True   # always enabled via online provider
+        self.deepseek_enabled = True  # always enabled via online provider
         self.deepseek_mode = deepseek_mode
         self.deepseek_port = deepseek_port
-        self.deepseek_client = None    # set during initialize()
+        self.deepseek_client = None  # set during initialize()
 
         # WebSocket and real-time features
         self.enable_websocket = enable_websocket
@@ -168,7 +171,9 @@ class FreeCADCLI:
             try:
                 print("🧠 Initializing online code generation client...")
                 self.online_codegen_client = OnlineCodeGenClient()
-                self.deepseek_client = self.online_codegen_client  # backward-compat alias
+                self.deepseek_client = (
+                    self.online_codegen_client
+                )  # backward-compat alias
                 print(
                     f"✅ Online code-gen client ready (model: {self.online_codegen_client.config.model})"
                 )
@@ -802,7 +807,9 @@ class FreeCADCLI:
             )
 
             if response.status == "success" and response.generated_code:
-                print(f"\n✅ Code generated (confidence: {response.confidence_score:.2f})")
+                print(
+                    f"\n✅ Code generated (confidence: {response.confidence_score:.2f})"
+                )
                 self._execute_generated_code(
                     response.generated_code, command_id, "Online LLM"
                 )

@@ -6,10 +6,7 @@ from .deepseek import (  # noqa: F401
     DeepSeekResponse,
     ReasoningStep,
 )
-from .online_codegen import (  # noqa: F401
-    OnlineCodeGenClient,
-    OnlineCodeGenConfig,
-)
+from .online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig  # noqa: F401
 
 __all__ = [
     "DeepSeekConfig",

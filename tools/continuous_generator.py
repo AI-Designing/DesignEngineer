@@ -23,23 +23,30 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from ai_designer.core.enhanced_complex_generator import EnhancedComplexShapeGenerator
 from ai_designer.llm.client import LLMClient
-from ai_designer.llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
 from ai_designer.llm.providers.deepseek import DeepSeekMode
+from ai_designer.llm.providers.online_codegen import (
+    OnlineCodeGenClient,
+    OnlineCodeGenConfig,
+)
 
 # Legacy aliases for any internal usage
 DeepSeekConfig = OnlineCodeGenConfig
 DeepSeekR1Client = OnlineCodeGenClient
 
+
 # DeepSeekIntegrationManager shim (keeps the attribute name alive)
 class DeepSeekIntegrationManager:
     """Lightweight shim that delegates to OnlineCodeGenClient."""
+
     def __init__(self, client, fallback_client=None):
         self._client = client
+
     def generate_command(self, nl_command: str, state=None, mode: str = "auto") -> str:
         resp = self._client.generate_complex_part(requirements=nl_command)
         if resp.status == "success":
             return resp.generated_code
         raise RuntimeError(resp.error_message or "Generation failed")
+
     def get_integration_metrics(self):
         return self._client.get_performance_metrics()
 

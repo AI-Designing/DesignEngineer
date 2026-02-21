@@ -143,7 +143,9 @@ class UnifiedLLMManager:
             "type": "online",
             "note": "Replaced by OnlineCodeGenClient (google/gemini-2.0-flash)",
         }
-        logger.info("\u2139\ufe0f DeepSeek R1 local provider disabled; using OnlineCodeGenClient")
+        logger.info(
+            "\u2139\ufe0f DeepSeek R1 local provider disabled; using OnlineCodeGenClient"
+        )
 
         # Initialize Google Gemini
         try:
