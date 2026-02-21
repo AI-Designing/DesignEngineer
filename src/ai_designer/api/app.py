@@ -181,3 +181,7 @@ def create_app() -> FastAPI:
     instrument_app(app)
 
     return app
+
+
+# Module-level instance for uvicorn: `uvicorn ai_designer.api.app:app`
+app = create_app()

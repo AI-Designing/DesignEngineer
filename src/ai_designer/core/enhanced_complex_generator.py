@@ -12,14 +12,13 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-# Import DeepSeek R1 integration
-from ..llm.deepseek_client import (
-    DeepSeekConfig,
-    DeepSeekIntegrationManager,
-    DeepSeekMode,
-    DeepSeekR1Client,
-    DeepSeekResponse,
-)
+# Import online code generation client (replaces local DeepSeek R1)
+from ..llm.providers.deepseek import DeepSeekMode, DeepSeekResponse
+from ..llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
+
+# Backward-compat aliases so any remaining deepseek_client references still work
+DeepSeekR1Client = OnlineCodeGenClient
+DeepSeekConfig = OnlineCodeGenConfig
 
 # Import the advanced prompt engineering system
 from .advanced_prompt_engine import EnhancedLLMIntegration, ProblemComplexity
@@ -532,24 +531,23 @@ class EnhancedComplexShapeGenerator:
         # Initialize logger first
         self.logger = logging.getLogger(__name__)
 
-        # Initialize DeepSeek R1 integration
-        self.use_deepseek = use_deepseek
+        # Initialize online code generation client (replaces local DeepSeek R1)
+        self.use_deepseek = True  # always enabled via online provider
         self.deepseek_client = None
         self.deepseek_manager = None
 
-        if use_deepseek:
-            try:
-                self.deepseek_client = DeepSeekR1Client(
-                    deepseek_config or DeepSeekConfig()
-                )
-                self.deepseek_manager = DeepSeekIntegrationManager(
-                    self.deepseek_client, fallback_client=llm_client
-                )
-                self.logger.info("✅ DeepSeek R1 integration enabled")
-            except Exception as e:
-                self.logger.warning(f"⚠️ DeepSeek R1 initialization failed: {e}")
-                self.logger.info("📝 Falling back to standard LLM client")
-                self.use_deepseek = False
+        try:
+            self.deepseek_client = OnlineCodeGenClient()
+            # deepseek_manager is used as a truthy signal; point it at the same client
+            self.deepseek_manager = self.deepseek_client
+            self.logger.info(
+                "✅ Online code-generation client ready (model: %s)",
+                self.deepseek_client.config.model,
+            )
+        except Exception as e:
+            self.logger.warning("⚠️ Online code-gen client failed to initialise: %s", e)
+            self.logger.info("📝 Falling back to standard LLM client")
+            self.use_deepseek = False
 
         # Initialize advanced prompt engineering system
         self.enhanced_llm = EnhancedLLMIntegration(llm_client)
@@ -1057,79 +1055,63 @@ class EnhancedComplexShapeGenerator:
                 self.logger.warning(f"Failed to get DeepSeek metrics: {e}")
                 base_metrics["deepseek_available"] = False
         else:
-            base_metrics["deepseek_available"] = False
+            base_metrics["online_codegen_available"] = self.use_deepseek
 
         return base_metrics
 
     def get_deepseek_insights(self) -> Dict[str, Any]:
-        """Get DeepSeek-specific insights and reasoning patterns"""
+        """Get online code-gen client insights (legacy name kept for compatibility)."""
         if not (self.use_deepseek and self.deepseek_client):
-            return {"available": False, "message": "DeepSeek R1 not available"}
+            return {"available": False, "message": "Online code-gen client not available"}
 
         try:
             return {
                 "available": True,
+                "model": self.deepseek_client.config.model,
                 "performance_metrics": self.deepseek_client.get_performance_metrics(),
-                "reasoning_insights": self.deepseek_client.get_reasoning_insights(),
-                "integration_stats": (
-                    self.deepseek_manager.get_integration_metrics()
-                    if self.deepseek_manager
-                    else {}
-                ),
             }
         except Exception as e:
             return {"available": False, "error": str(e)}
 
     def force_deepseek_mode(self, enable: bool = True):
-        """Force enable or disable DeepSeek mode"""
+        """Enable or disable the online code-gen client (legacy DeepSeek API)."""
         if enable and not self.use_deepseek:
             try:
-                self.deepseek_client = DeepSeekR1Client()
-                self.deepseek_manager = DeepSeekIntegrationManager(
-                    self.deepseek_client, fallback_client=self.llm_client
-                )
+                self.deepseek_client = OnlineCodeGenClient()
+                self.deepseek_manager = self.deepseek_client
                 self.use_deepseek = True
-                self.logger.info("✅ DeepSeek R1 force-enabled")
+                self.logger.info("✅ Online code-gen client force-enabled")
             except Exception as e:
-                self.logger.error(f"❌ Failed to force-enable DeepSeek: {e}")
+                self.logger.error("❌ Failed to enable online code-gen client: %s", e)
         elif not enable:
             self.use_deepseek = False
-            self.logger.info("🔄 DeepSeek R1 disabled, using fallback")
+            self.logger.info("🔄 Online code-gen disabled, using fallback")
 
     def test_deepseek_connection(self) -> Dict[str, Any]:
-        """Test DeepSeek R1 connection and capabilities"""
+        """Test online code-gen client with a simple generation."""
         if not self.deepseek_client:
             return {
                 "status": "not_initialized",
-                "message": "DeepSeek client not initialized",
+                "message": "Online code-gen client not initialized",
             }
 
         try:
-            # Test with a simple part generation
             test_response = self.deepseek_client.generate_complex_part(
                 requirements="Create a simple test cube with 10mm sides",
                 mode=DeepSeekMode.FAST,
                 context={"test": True},
             )
-
             return {
                 "status": "success",
-                "connection": True,
+                "model": self.deepseek_client.config.model,
                 "test_generation": {
                     "confidence": test_response.confidence_score,
                     "execution_time": test_response.execution_time,
-                    "reasoning_steps": len(test_response.reasoning_chain),
                     "code_generated": bool(test_response.generated_code),
-                },
-                "capabilities": {
-                    "reasoning_mode": True,
-                    "creative_mode": True,
-                    "technical_mode": True,
-                    "fast_mode": True,
                 },
             }
         except Exception as e:
-            return {"status": "error", "connection": False, "error": str(e)}
+            return {"status": "error", "error": str(e)}
 
     def _generate_with_advanced_prompts(
         self, user_requirements: str, session_context: Dict[str, Any]

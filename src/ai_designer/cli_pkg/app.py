@@ -30,7 +30,7 @@ try:
     from ai_designer.freecad.command_executor import CommandExecutor
     from ai_designer.freecad.persistent_gui_client import PersistentFreeCADGUI
     from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
-    from ai_designer.llm.deepseek_client import DeepSeekR1Client
+    from ai_designer.llm.providers.online_codegen import OnlineCodeGenClient
     from ai_designer.llm.unified_manager import LLMProvider, UnifiedLLMManager
     from ai_designer.realtime.websocket_manager import ProgressTracker, WebSocketManager
     from ai_designer.redis_utils.client import RedisClient
@@ -43,7 +43,7 @@ except ImportError:
     from ai_designer.freecad.command_executor import CommandExecutor
     from ai_designer.freecad.persistent_gui_client import PersistentFreeCADGUI
     from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
-    from ai_designer.llm.deepseek_client import DeepSeekR1Client
+    from ai_designer.llm.providers.online_codegen import OnlineCodeGenClient
     from ai_designer.llm.unified_manager import LLMProvider, UnifiedLLMManager
     from ai_designer.realtime.websocket_manager import ProgressTracker, WebSocketManager
     from ai_designer.redis_utils.client import RedisClient
@@ -80,11 +80,11 @@ class FreeCADCLIApp:
         self.auto_open_gui = auto_open_gui
         self.unified_llm_manager: Optional[UnifiedLLMManager] = None
 
-        # Legacy DeepSeek
-        self.deepseek_enabled = deepseek_enabled
+        # Online code-gen client (replaces legacy local DeepSeek R1)
+        self.deepseek_enabled = True   # always on via online provider
         self.deepseek_mode = deepseek_mode
         self.deepseek_port = deepseek_port
-        self.deepseek_client: Optional[DeepSeekR1Client] = None
+        self.deepseek_client: Optional[OnlineCodeGenClient] = None
 
         # Real-time / GUI
         self.enable_websocket = enable_websocket
@@ -165,18 +165,15 @@ class FreeCADCLIApp:
             print(f"⚠️  Unified LLM Manager initialization failed: {e}")
             self.unified_llm_manager = None
 
-        # Legacy DeepSeek
+        # Online code-gen client (replaces legacy DeepSeek R1)
         if self.deepseek_enabled:
             try:
-                from ai_designer.llm.deepseek_client import DeepSeekConfig
-
-                config = DeepSeekConfig(
-                    host="localhost", port=self.deepseek_port, timeout=300
+                self.deepseek_client = OnlineCodeGenClient()
+                print(
+                    f"\u2705 Online code-gen client ready (model: {self.deepseek_client.config.model})"
                 )
-                self.deepseek_client = DeepSeekR1Client(config=config)
-                print("✅ Legacy DeepSeek R1 client ready")
             except Exception as e:
-                print(f"⚠️  Legacy DeepSeek R1 initialization failed: {e}")
+                print(f"\u26a0\ufe0f  Online code-gen client failed: {e}")
                 self.deepseek_enabled = False
 
         # WebSocket server

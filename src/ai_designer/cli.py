@@ -13,11 +13,8 @@ try:
     from .freecad.command_executor import CommandExecutor
     from .freecad.persistent_gui_client import PersistentFreeCADGUI
     from .freecad.state_manager import FreeCADStateAnalyzer
-    from .llm.deepseek_client import (
-        DeepSeekIntegrationManager,
-        DeepSeekMode,
-        DeepSeekR1Client,
-    )
+    from .llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
+    from .llm.providers.deepseek import DeepSeekMode
     from .llm.unified_manager import (
         GenerationMode,
         LLMProvider,
@@ -42,11 +39,8 @@ except ImportError:
     from ai_designer.freecad.command_executor import CommandExecutor
     from ai_designer.freecad.persistent_gui_client import PersistentFreeCADGUI
     from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
-    from ai_designer.llm.deepseek_client import (
-        DeepSeekIntegrationManager,
-        DeepSeekMode,
-        DeepSeekR1Client,
-    )
+    from ai_designer.llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
+    from ai_designer.llm.providers.deepseek import DeepSeekMode
     from ai_designer.llm.unified_manager import (
         GenerationMode,
         LLMProvider,
@@ -82,12 +76,15 @@ class FreeCADCLI:
         # Unified LLM Manager configuration
         self.unified_llm_manager = None
 
-        # Legacy DeepSeek configuration (for backward compatibility)
-        self.deepseek_enabled = deepseek_enabled
+        # Online code-gen client (replaces local DeepSeek R1)
+        self.online_codegen_client = None
+        self.enhanced_generator = None
+
+        # Legacy deepseek_* attributes kept for external compatibility
+        self.deepseek_enabled = True   # always enabled via online provider
         self.deepseek_mode = deepseek_mode
         self.deepseek_port = deepseek_port
-        self.deepseek_client = None
-        self.enhanced_generator = None
+        self.deepseek_client = None    # set during initialize()
 
         # WebSocket and real-time features
         self.enable_websocket = enable_websocket
@@ -166,21 +163,17 @@ class FreeCADCLI:
             print(f"⚠️  Unified LLM Manager initialization failed: {e}")
             self.unified_llm_manager = None
 
-        # Initialize legacy DeepSeek R1 if enabled (for backward compatibility)
+        # Initialize online code-gen client during startup
         if self.deepseek_enabled:
             try:
+                print("🧠 Initializing online code generation client...")
+                self.online_codegen_client = OnlineCodeGenClient()
+                self.deepseek_client = self.online_codegen_client  # backward-compat alias
                 print(
-                    f"🧠 Initializing legacy DeepSeek R1 client on port {self.deepseek_port}..."
+                    f"✅ Online code-gen client ready (model: {self.online_codegen_client.config.model})"
                 )
-                from ai_designer.llm.deepseek_client import DeepSeekConfig
-
-                config = DeepSeekConfig(
-                    host="localhost", port=self.deepseek_port, timeout=300
-                )
-                self.deepseek_client = DeepSeekR1Client(config=config)
-                print("✅ Legacy DeepSeek R1 client ready")
             except Exception as e:
-                print(f"⚠️  Legacy DeepSeek R1 initialization failed: {e}")
+                print(f"⚠️  Online code-gen client initialization failed: {e}")
                 print("Continuing with unified LLM manager...")
                 self.deepseek_enabled = False
 
@@ -221,27 +214,18 @@ class FreeCADCLI:
             )
             self.state_analyzer = FreeCADStateAnalyzer(self.api_client)
 
-            # Initialize enhanced generator with DeepSeek after command executor is ready
-            if self.deepseek_enabled and self.deepseek_client:
+            # Initialize enhanced generator with online code-gen client
+            if self.deepseek_enabled and self.online_codegen_client:
                 try:
-                    print(
-                        "🔧 Initializing Enhanced Complex Generator with DeepSeek R1..."
-                    )
-                    from ai_designer.llm.deepseek_client import DeepSeekConfig
-
-                    config = DeepSeekConfig(
-                        host="localhost", port=self.deepseek_port, timeout=300
-                    )
+                    print("🔧 Initializing Enhanced Complex Generator...")
                     self.enhanced_generator = EnhancedComplexShapeGenerator(
-                        llm_client=None,  # Will use DeepSeek
+                        llm_client=None,
                         state_analyzer=self.state_analyzer,
                         command_executor=self.command_executor,
                         state_cache=self.state_cache,
                         websocket_manager=self.websocket_manager,
-                        use_deepseek=True,
-                        deepseek_config=config,
                     )
-                    print("✅ Enhanced Complex Generator with DeepSeek R1 ready")
+                    print("✅ Enhanced Complex Generator ready")
                 except Exception as e:
                     print(f"⚠️  Enhanced generator initialization failed: {e}")
                     self.enhanced_generator = None
@@ -793,74 +777,43 @@ class FreeCADCLI:
             print(f"{i:2d}. {cmd[:50]}{'...' if len(cmd) > 50 else ''}")
 
     def execute_deepseek_command(self, command):
-        """Execute command using DeepSeek R1 for complex part generation"""
-        if not self.deepseek_enabled or not self.deepseek_client:
-            print("❌ DeepSeek R1 is not enabled or not initialized")
+        """Execute command using the online code generation client."""
+        if not self.deepseek_enabled or not self.online_codegen_client:
+            print("❌ Online code-gen client is not enabled or not initialized")
             print("🔄 Falling back to standard processing...")
             return self.execute_command(command)
 
-        command_id = f"deepseek_cmd_{int(time.time() * 1000)}"
+        command_id = f"online_codegen_cmd_{int(time.time() * 1000)}"
 
     def _use_direct_deepseek_api(self, command, mode, command_id):
-        """Use direct DeepSeek R1 API call"""
+        """Generate FreeCAD code via the online code-gen client."""
         try:
-            # Progress update
             if self.progress_tracker:
                 self.progress_tracker.update_progress(
-                    command_id, 2, "Sending request to DeepSeek R1..."
+                    command_id, 2, "Sending request to online code-gen service..."
                 )
 
-            print(
-                "🔄 Attempting DeepSeek R1 API call (may take up to 2 minutes for 14b model)..."
+            print("🔄 Generating FreeCAD code via online LLM...")
+
+            response = self.online_codegen_client.generate_complex_part(
+                requirements=command,
+                mode=mode,
+                context={"interactive": True},
             )
 
-            # Create a suitable timeout for CLI usage with 14B model
-            original_timeout = self.deepseek_client.config.timeout
-            self.deepseek_client.config.timeout = (
-                300  # 5 minutes max for CLI with 14B model
-            )
-
-            response = asyncio.run(
-                self.deepseek_client.generate_complex_part(
-                    prompt=command, mode=mode, enable_reasoning=True
+            if response.status == "success" and response.generated_code:
+                print(f"\n✅ Code generated (confidence: {response.confidence_score:.2f})")
+                self._execute_generated_code(
+                    response.generated_code, command_id, "Online LLM"
                 )
-            )
-
-            # Restore original timeout
-            self.deepseek_client.config.timeout = original_timeout
-
-            if response and response.success:
-                if response.reasoning:
-                    print(f"\n🧠 DeepSeek R1 Reasoning:")
-                    print("=" * 50)
-                    print(
-                        response.reasoning[:500] + "..."
-                        if len(response.reasoning) > 500
-                        else response.reasoning
-                    )
-                    print("=" * 50)
-
-                # Execute the code
-                if response.freecad_code:
-                    self._execute_generated_code(
-                        response.freecad_code, command_id, "Direct API"
-                    )
-                else:
-                    print("⚠️  No FreeCAD code generated from direct API")
-                    if self.progress_tracker:
-                        self.progress_tracker.fail_tracking(
-                            command_id, "No FreeCAD code generated"
-                        )
             else:
-                error_msg = (
-                    response.error if response else "No response from DeepSeek R1"
-                )
-                print(f"❌ DeepSeek R1 API failed: {error_msg}")
+                error_msg = response.error_message or "No code generated"
+                print(f"❌ Online code-gen failed: {error_msg}")
                 if self.progress_tracker:
                     self.progress_tracker.fail_tracking(command_id, error_msg)
 
         except Exception as e:
-            print(f"❌ Direct API exception: {e}")
+            print(f"❌ Online code-gen exception: {e}")
             if self.progress_tracker:
                 self.progress_tracker.fail_tracking(command_id, str(e))
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Interactive Component Generator CLI
-Generate complex mechanical components interactively using DeepSeek R1
+Generate complex mechanical components interactively using an online LLM (Gemini 2.0 Flash)
 """
 
 import json
@@ -16,11 +16,12 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from ai_designer.llm.deepseek_client import (
-    DeepSeekConfig,
-    DeepSeekMode,
-    DeepSeekR1Client,
-)
+from ai_designer.llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
+from ai_designer.llm.providers.deepseek import DeepSeekMode
+
+# Legacy aliases
+DeepSeekConfig = OnlineCodeGenConfig
+DeepSeekR1Client = OnlineCodeGenClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -35,22 +36,14 @@ class InteractiveGenerator:
         self.setup_client()
 
     def setup_client(self):
-        """Setup DeepSeek R1 client"""
-        config = DeepSeekConfig(
-            host="localhost",
-            port=11434,
-            model_name="deepseek-r1:14b",
-            timeout=600,
-            reasoning_enabled=True,
-            temperature=0.1,
-            max_tokens=8192,
-        )
-
+        """Set up the online code-generation client."""
         try:
-            self.client = DeepSeekR1Client(config)
-            logger.info("✅ DeepSeek R1 client ready")
+            self.client = OnlineCodeGenClient()
+            logger.info(
+                f"\u2705 Online code-gen client ready (model: {self.client.config.model})"
+            )
         except Exception as e:
-            logger.error(f"❌ Failed to setup client: {e}")
+            logger.error(f"\u274c Failed to setup online code-gen client: {e}")
             sys.exit(1)
 
     def get_mode_from_user(self) -> DeepSeekMode:

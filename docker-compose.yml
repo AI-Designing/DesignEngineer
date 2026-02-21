@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ─── Common build context shared by dev/prod targets ─────────────────────────
 x-app-build: &app-build
   context: .

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Continuous FreeCAD Component Generator using DeepSeek R1 14B
+Continuous FreeCAD Component Generator using Online LLM (Gemini 2.0 Flash)
 Automatically generates complex mechanical components using AI reasoning
 """
 
@@ -23,12 +23,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from ai_designer.core.enhanced_complex_generator import EnhancedComplexShapeGenerator
 from ai_designer.llm.client import LLMClient
-from ai_designer.llm.deepseek_client import (
-    DeepSeekConfig,
-    DeepSeekIntegrationManager,
-    DeepSeekMode,
-    DeepSeekR1Client,
-)
+from ai_designer.llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
+from ai_designer.llm.providers.deepseek import DeepSeekMode
+
+# Legacy aliases for any internal usage
+DeepSeekConfig = OnlineCodeGenConfig
+DeepSeekR1Client = OnlineCodeGenClient
+
+# DeepSeekIntegrationManager shim (keeps the attribute name alive)
+class DeepSeekIntegrationManager:
+    """Lightweight shim that delegates to OnlineCodeGenClient."""
+    def __init__(self, client, fallback_client=None):
+        self._client = client
+    def generate_command(self, nl_command: str, state=None, mode: str = "auto") -> str:
+        resp = self._client.generate_complex_part(requirements=nl_command)
+        if resp.status == "success":
+            return resp.generated_code
+        raise RuntimeError(resp.error_message or "Generation failed")
+    def get_integration_metrics(self):
+        return self._client.get_performance_metrics()
 
 
 # Mock classes for missing components
@@ -105,47 +118,31 @@ class ContinuousComponentGenerator:
             }
 
     def setup_clients(self):
-        """Initialize all required clients"""
-        logger.info("🚀 Setting up Continuous Component Generator...")
+        """Initialize the online code-generation client."""
+        logger.info("\U0001f680 Setting up Continuous Component Generator...")
 
         try:
-            # Configure DeepSeek R1 from config
-            deepseek_config = DeepSeekConfig(
-                host=self.config.get("deepseek", {}).get("host", "localhost"),
-                port=self.config.get("deepseek", {}).get("port", 11434),
-                model_name=self.config.get("deepseek", {}).get(
-                    "model_name", "deepseek-r1:14b"
-                ),
-                timeout=self.config.get("deepseek", {}).get("timeout", 600),
-                reasoning_enabled=self.config.get("deepseek", {}).get(
-                    "reasoning_enabled", True
-                ),
-                stream=self.config.get("deepseek", {}).get("stream", False),
-                temperature=self.config.get("deepseek", {}).get("temperature", 0.1),
-                top_p=self.config.get("deepseek", {}).get("top_p", 0.95),
-                max_tokens=self.config.get("deepseek", {}).get("max_tokens", 8192),
+            # Read optional model override from config
+            codegen_cfg = self.config.get("online_codegen", {})
+            config = OnlineCodeGenConfig(
+                model=codegen_cfg.get("model", "google/gemini-2.0-flash"),
+                fallback_model=codegen_cfg.get("fallback_model", "openai/gpt-4o"),
+                temperature=codegen_cfg.get("temperature", 0.1),
+                max_tokens=codegen_cfg.get("max_tokens", 8192),
+                timeout=codegen_cfg.get("timeout", 120),
             )
 
-            # Initialize DeepSeek client
-            self.deepseek_client = DeepSeekR1Client(deepseek_config)
-            logger.info("✅ DeepSeek R1 client initialized successfully")
-
-            # Initialize fallback client (optional)
-            try:
-                fallback_client = LLMClient()
-                logger.info("✅ Fallback LLM client initialized")
-            except Exception as e:
-                logger.warning(f"⚠️ Fallback client failed: {e}")
-                fallback_client = None
-
-            # Initialize integration manager
-            self.integration_manager = DeepSeekIntegrationManager(
-                self.deepseek_client, fallback_client
+            self.deepseek_client = OnlineCodeGenClient(config)
+            logger.info(
+                f"\u2705 Online code-gen client initialised (model: {self.deepseek_client.config.model})"
             )
 
-            # Initialize enhanced generator
+            # Lightweight integration manager (for legacy code paths)
+            self.integration_manager = DeepSeekIntegrationManager(self.deepseek_client)
+
+            # Enhanced generator (uses the same online client internally)
             self.enhanced_generator = EnhancedComplexShapeGenerator(
-                llm_client=fallback_client,
+                llm_client=None,
                 state_analyzer=MockStateAnalyzer(),
                 command_executor=MockCommandExecutor(),
                 use_deepseek=True,

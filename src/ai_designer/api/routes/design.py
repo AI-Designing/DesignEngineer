@@ -262,7 +262,7 @@ async def export_design(
     formats: str = Query(
         "step",
         description="Comma-separated export formats (step, stl, fcstd)",
-        regex="^(step|stl|fcstd)(,(step|stl|fcstd))*$",
+        pattern="^(step|stl|fcstd)(,(step|stl|fcstd))*$",
     ),
     exporter: CADExporter = Depends(get_cad_exporter),
 ) -> Dict[str, ExportResponse]:

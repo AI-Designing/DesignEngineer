@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Direct DeepSeek R1 Component Generator
-Generate complex mechanical components directly using DeepSeek R1
+Direct Online LLM Component Generator
+Generate complex mechanical components directly using an online LLM (Gemini 2.0 Flash / GPT-4o)
 """
 
 import json
@@ -16,11 +16,12 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from ai_designer.llm.deepseek_client import (
-    DeepSeekConfig,
-    DeepSeekMode,
-    DeepSeekR1Client,
-)
+from ai_designer.llm.providers.online_codegen import OnlineCodeGenClient, OnlineCodeGenConfig
+from ai_designer.llm.providers.deepseek import DeepSeekMode
+
+# Keep legacy aliases so any callers that import these names still work
+DeepSeekConfig = OnlineCodeGenConfig
+DeepSeekR1Client = OnlineCodeGenClient
 
 # Configure logging
 logging.basicConfig(
@@ -30,25 +31,15 @@ logger = logging.getLogger(__name__)
 
 
 def generate_component(requirements: str, mode: DeepSeekMode = DeepSeekMode.REASONING):
-    """Generate a single component using DeepSeek R1"""
+    """Generate a single component using the online code-gen client."""
 
-    logger.info(f"🚀 Generating component with DeepSeek R1")
-    logger.info(f"📋 Requirements: {requirements}")
-    logger.info(f"⚙️ Mode: {mode.value}")
+    logger.info("\U0001f680 Generating component via online LLM")
+    logger.info(f"\U0001f4cb Requirements: {requirements}")
+    logger.info(f"\u2699\ufe0f Mode: {mode.value}")
 
-    # Configure DeepSeek R1
-    config = DeepSeekConfig(
-        host="localhost",
-        port=11434,
-        model_name="deepseek-r1:14b",
-        timeout=600,
-        reasoning_enabled=True,
-        temperature=0.1,
-        max_tokens=8192,
-    )
-
-    # Initialize client
-    client = DeepSeekR1Client(config)
+    # Initialize online client (reads model from env or defaults to gemini-2.0-flash)
+    client = OnlineCodeGenClient()
+    logger.info(f"\U0001f4e1 Using model: {client.config.model}")
 
     # Generate component
     start_time = time.time()

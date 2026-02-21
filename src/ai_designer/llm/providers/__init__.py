@@ -6,6 +6,10 @@ from .deepseek import (  # noqa: F401
     DeepSeekResponse,
     ReasoningStep,
 )
+from .online_codegen import (  # noqa: F401
+    OnlineCodeGenClient,
+    OnlineCodeGenConfig,
+)
 
 __all__ = [
     "DeepSeekConfig",
@@ -13,4 +17,6 @@ __all__ = [
     "DeepSeekR1Client",
     "DeepSeekResponse",
     "ReasoningStep",
+    "OnlineCodeGenClient",
+    "OnlineCodeGenConfig",
 ]

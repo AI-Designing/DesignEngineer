@@ -27,10 +27,10 @@ AGENT_MODEL_CONFIG: dict = {
         "max_tokens": 4096,
     },
     "generator": {
-        "primary": "openai/gpt-4o",
-        "fallback": "anthropic/claude-3-5-sonnet-20241022",
-        "temperature": 0.2,
-        "max_tokens": 4096,
+        "primary": "google/gemini-2.0-flash",
+        "fallback": "openai/gpt-4o",
+        "temperature": 0.1,
+        "max_tokens": 8192,
     },
     "validator": {
         "primary": "anthropic/claude-3-5-sonnet-20241022",

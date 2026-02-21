@@ -16,9 +16,10 @@ COPY pyproject.toml setup.cfg ./
 COPY src/ ./src/
 
 # Create and populate a venv inside the builder stage
+# Install explicit package list first to ensure optional deps are present,
+# then install the project itself in editable mode.
 RUN python -m venv /opt/venv && \
     /opt/venv/bin/pip install --upgrade pip wheel && \
-    /opt/venv/bin/pip install --no-cache-dir -e ".[all]" || \
     /opt/venv/bin/pip install --no-cache-dir \
         "redis>=4.0.2" \
         "requests>=2.25.1" \
@@ -41,7 +42,8 @@ RUN python -m venv /opt/venv && \
         "colorama>=0.4.6" \
         "prometheus-client>=0.19.0" \
         "python-jose[cryptography]>=3.3.0" \
-        "passlib[bcrypt]>=1.7.4"
+        "passlib[bcrypt]>=1.7.4" && \
+    /opt/venv/bin/pip install --no-cache-dir --no-deps -e . 2>/dev/null || true
 
 # ── Stage 2: minimal runtime image ───────────────────────────────────────────
 FROM python:3.11-slim AS runtime

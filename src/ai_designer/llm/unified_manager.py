@@ -123,7 +123,8 @@ class UnifiedLLMManager:
             self._llm_provider = None
             logger.warning("⚠️ Could not initialise litellm provider: %s", _e)
 
-        # Initialize legacy providers (backward compat)
+        # Initialize legacy providers (backward compat — DeepSeek local skipped,
+        # Google Gemini still attempted if GOOGLE_API_KEY is set)
         self._initialize_providers()
 
         logger.info("🚀 Unified LLM Manager initialized")
@@ -132,33 +133,17 @@ class UnifiedLLMManager:
     def _initialize_providers(self):
         """Initialize all available LLM providers"""
 
-        # Initialize DeepSeek R1
-        try:
-            deepseek_config = DeepSeekConfig(
-                host=self.config.get("deepseek_host", "localhost"),
-                port=self.config.get("deepseek_port", 11434),
-                model_name=self.config.get("deepseek_model", "deepseek-r1:14b"),
-                timeout=self.config.get("deepseek_timeout", 300),
-            )
-            deepseek_client = DeepSeekR1Client(deepseek_config)
-            integration_manager = DeepSeekIntegrationManager(deepseek_client)
-
-            self.providers[LLMProvider.DEEPSEEK_R1] = {
-                "client": deepseek_client,
-                "manager": integration_manager,
-                "available": True,
-                "type": "local",
-            }
-            logger.info("✅ DeepSeek R1 provider initialized")
-        except Exception as e:
-            logger.warning(f"⚠️ DeepSeek R1 initialization failed: {e}")
-            self.providers[LLMProvider.DEEPSEEK_R1] = {
-                "client": None,
-                "manager": None,
-                "available": False,
-                "type": "local",
-                "error": str(e),
-            }
+        # Initialize DeepSeek R1 – skipped; code generation is now routed through
+        # OnlineCodeGenClient (litellm-backed). Mark as unavailable so the fallback
+        # chain falls through to Google Gemini / litellm automatically.
+        self.providers[LLMProvider.DEEPSEEK_R1] = {
+            "client": None,
+            "manager": None,
+            "available": False,
+            "type": "online",
+            "note": "Replaced by OnlineCodeGenClient (google/gemini-2.0-flash)",
+        }
+        logger.info("\u2139\ufe0f DeepSeek R1 local provider disabled; using OnlineCodeGenClient")
 
         # Initialize Google Gemini
         try:
