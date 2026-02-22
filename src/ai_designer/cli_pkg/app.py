@@ -137,7 +137,7 @@ class FreeCADCLIApp:
         print("🧠 Initializing Unified LLM Manager...")
         try:
             llm_config = {
-                "google_api_key": self.llm_api_key or os.getenv("GOOGLE_API_KEY"),
+                "opper_api_key": self.llm_api_key or os.getenv("OPPER_API_KEY"),
                 "deepseek_host": "localhost",
                 "deepseek_port": self.deepseek_port,
                 "deepseek_model": "deepseek-r1:14b",

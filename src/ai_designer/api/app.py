@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ai_designer.api.middleware import AuthMiddleware, RateLimitMiddleware
-from ai_designer.api.routes import design, health, ws
+from ai_designer.api.routes import agent_config, design, health, ws
 from ai_designer.core.exceptions import (
     AgentError,
     ConfigurationError,
@@ -176,6 +176,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, tags=["Health"])
     app.include_router(design.router, prefix="/api/v1", tags=["Design"])
     app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
+    app.include_router(agent_config.router, prefix="/api/v1", tags=["Admin"])
 
     # Prometheus middleware + /metrics route (must come after routers)
     instrument_app(app)

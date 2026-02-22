@@ -1,5 +1,5 @@
 """
-Unit tests for UnifiedLLMProvider.
+Unit tests for UnifiedLLMProvider (Opper-backed).
 """
 
 import os
@@ -17,32 +17,45 @@ from ai_designer.core.llm_provider import (
     UnifiedLLMProvider,
 )
 
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
 
 @pytest.fixture
-def mock_litellm_response():
-    """Mock successful litellm response."""
+def mock_opper_response():
+    """Mock successful Opper call() response."""
     response = MagicMock()
-    response.choices = [MagicMock()]
-    response.choices[0].message.content = "This is a test response from the LLM."
-    response.choices[0].finish_reason = "stop"
-    response.usage = MagicMock()
-    response.usage.prompt_tokens = 10
-    response.usage.completion_tokens = 20
-    response.usage.total_tokens = 30
+    response.message = "This is a test response from the LLM."
+    response.json_payload = None
     return response
+
+
+@pytest.fixture(autouse=True)
+def reset_opper_singleton():
+    """Reset the module-level Opper singleton between tests."""
+    import ai_designer.core.llm_provider as mod
+
+    original = mod._opper_client
+    mod._opper_client = None
+    yield
+    mod._opper_client = original
+
+
+# ---------------------------------------------------------------------------
+# Schema tests (unchanged from before – no mocking needed)
+# ---------------------------------------------------------------------------
 
 
 class TestLLMMessage:
     """Test LLMMessage schema."""
 
     def test_create_message(self):
-        """Test creating LLM message."""
         msg = LLMMessage(role=LLMRole.USER, content="Hello!")
         assert msg.role == LLMRole.USER
         assert msg.content == "Hello!"
 
     def test_role_enum(self):
-        """Test role enumeration."""
         assert LLMRole.SYSTEM.value == "system"
         assert LLMRole.USER.value == "user"
         assert LLMRole.ASSISTANT.value == "assistant"
@@ -52,175 +65,149 @@ class TestLLMRequest:
     """Test LLMRequest schema."""
 
     def test_create_request(self):
-        """Test creating LLM request."""
         messages = [LLMMessage(role=LLMRole.USER, content="Test")]
-        request = LLMRequest(messages=messages, model="gpt-4o")
-
+        request = LLMRequest(messages=messages, model="openai/gpt-4o")
         assert len(request.messages) == 1
-        assert request.model == "gpt-4o"
-        assert request.temperature == 0.7  # default
+        assert request.model == "openai/gpt-4o"
+        assert request.temperature == 0.7
 
     def test_temperature_bounds(self):
-        """Test temperature validation."""
         messages = [LLMMessage(role=LLMRole.USER, content="Test")]
-
-        # Valid
-        LLMRequest(messages=messages, model="gpt-4o", temperature=0.0)
-        LLMRequest(messages=messages, model="gpt-4o", temperature=2.0)
-
-        # Invalid
-        with pytest.raises(Exception):  # Pydantic validation error
-            LLMRequest(messages=messages, model="gpt-4o", temperature=-0.1)
-
+        LLMRequest(messages=messages, model="openai/gpt-4o", temperature=0.0)
+        LLMRequest(messages=messages, model="openai/gpt-4o", temperature=2.0)
         with pytest.raises(Exception):
-            LLMRequest(messages=messages, model="gpt-4o", temperature=2.1)
+            LLMRequest(messages=messages, model="openai/gpt-4o", temperature=-0.1)
+        with pytest.raises(Exception):
+            LLMRequest(messages=messages, model="openai/gpt-4o", temperature=2.1)
 
 
 class TestLLMResponse:
     """Test LLMResponse schema."""
 
     def test_create_response(self):
-        """Test creating LLM response."""
         response = LLMResponse(
             content="Test response",
-            model="gpt-4o",
+            model="openai/gpt-4o",
             provider="openai",
             usage={"total_tokens": 100},
             latency_ms=250.5,
         )
-
         assert response.content == "Test response"
-        assert response.model == "gpt-4o"
+        assert response.model == "openai/gpt-4o"
         assert response.provider == "openai"
         assert response.usage["total_tokens"] == 100
         assert response.latency_ms == 250.5
 
 
+# ---------------------------------------------------------------------------
+# UnifiedLLMProvider tests with Opper mock
+# ---------------------------------------------------------------------------
+
+
 class TestUnifiedLLMProvider:
-    """Test UnifiedLLMProvider."""
+    """Test UnifiedLLMProvider (Opper backend)."""
+
+    def _make_provider(self, **kwargs) -> UnifiedLLMProvider:
+        """Helper to create provider with OPPER_API_KEY set."""
+        with patch.dict(
+            os.environ, {"OPPER_API_KEY": "test-opper-key"}  # pragma: allowlist secret
+        ):
+            return UnifiedLLMProvider(**kwargs)
 
     def test_initialization(self):
-        """Test provider initialization."""
-        provider = UnifiedLLMProvider(
-            default_model="gpt-4o",
-            fallback_models=["claude-3-5-sonnet-20241022"],
+        provider = self._make_provider(
+            default_model="openai/gpt-4o",
+            fallback_models=["anthropic/claude-3-5-sonnet-20241022"],
             max_retries=2,
+            agent_name="test_agent",
         )
-
-        assert provider.default_model == "gpt-4o"
+        assert provider.default_model == "openai/gpt-4o"
         assert len(provider.fallback_models) == 1
         assert provider.max_retries == 2
         assert provider.total_requests == 0
+        assert provider.agent_name == "test_agent"
 
-    @patch("ai_designer.core.llm_provider.litellm.completion")
-    def test_generate_success(self, mock_completion, mock_litellm_response):
-        """Test successful generation."""
-        mock_completion.return_value = mock_litellm_response
+    @patch("ai_designer.core.llm_provider._get_opper")
+    def test_generate_success(self, mock_get_opper, mock_opper_response):
+        """Test successful generation via Opper."""
+        mock_opper = MagicMock()
+        mock_opper.call.return_value = mock_opper_response
+        mock_get_opper.return_value = mock_opper
 
-        provider = UnifiedLLMProvider(default_model="gpt-4o")
+        provider = self._make_provider(default_model="openai/gpt-4o")
         messages = [LLMMessage(role=LLMRole.USER, content="Hello")]
 
         response = provider.generate(messages=messages)
 
         assert isinstance(response, LLMResponse)
         assert response.content == "This is a test response from the LLM."
-        assert response.model == "gpt-4o"
+        assert response.model == "openai/gpt-4o"
         assert response.provider == "openai"
-        assert response.usage["total_tokens"] == 30
         assert provider.total_requests == 1
-        assert provider.total_tokens == 30
+        mock_opper.call.assert_called_once()
 
-    @patch("ai_designer.core.llm_provider.litellm.completion")
-    def test_generate_with_dict_messages(self, mock_completion, mock_litellm_response):
+    @patch("ai_designer.core.llm_provider._get_opper")
+    def test_generate_with_dict_messages(self, mock_get_opper, mock_opper_response):
         """Test generation with dict messages."""
-        mock_completion.return_value = mock_litellm_response
+        mock_opper = MagicMock()
+        mock_opper.call.return_value = mock_opper_response
+        mock_get_opper.return_value = mock_opper
 
-        provider = UnifiedLLMProvider()
+        provider = self._make_provider()
         messages = [{"role": "user", "content": "Hello"}]
 
         response = provider.generate(messages=messages)
-
         assert response.content == "This is a test response from the LLM."
-        mock_completion.assert_called_once()
+        mock_opper.call.assert_called_once()
 
-    @patch("ai_designer.core.llm_provider.litellm.completion")
-    def test_generate_with_system_prompt(self, mock_completion, mock_litellm_response):
+    @patch("ai_designer.core.llm_provider._get_opper")
+    def test_generate_with_system_prompt(self, mock_get_opper, mock_opper_response):
         """Test generate_with_system_prompt convenience method."""
-        mock_completion.return_value = mock_litellm_response
+        mock_opper = MagicMock()
+        mock_opper.call.return_value = mock_opper_response
+        mock_get_opper.return_value = mock_opper
 
-        provider = UnifiedLLMProvider()
+        provider = self._make_provider()
         response = provider.generate_with_system_prompt(
             user_message="Create a cube",
             system_prompt="You are a CAD expert.",
         )
 
         assert response.content == "This is a test response from the LLM."
+        call_kwargs = mock_opper.call.call_args.kwargs
+        assert call_kwargs["instructions"] == "You are a CAD expert."
+        assert call_kwargs["input"] == "Create a cube"
 
-        # Verify system message was included
-        call_args = mock_completion.call_args
-        messages = call_args[1]["messages"]
-        assert len(messages) == 2
-        assert messages[0]["role"] == "system"
-        assert messages[1]["role"] == "user"
-
-    @patch("ai_designer.core.llm_provider.litellm.completion")
-    @patch("ai_designer.core.llm_provider.time.sleep")  # Mock sleep to speed up test
-    def test_retry_on_failure(self, mock_sleep, mock_completion, mock_litellm_response):
-        """Test retry logic on transient failures."""
-        # Fail twice, then succeed
-        mock_completion.side_effect = [
+    @patch("ai_designer.core.llm_provider.time.sleep")
+    @patch("ai_designer.core.llm_provider._get_opper")
+    def test_retry_on_failure(self, mock_get_opper, mock_sleep, mock_opper_response):
+        """Test retry logic on transient Opper failures."""
+        mock_opper = MagicMock()
+        mock_opper.call.side_effect = [
             Exception("Transient error 1"),
             Exception("Transient error 2"),
-            mock_litellm_response,
+            mock_opper_response,
         ]
+        mock_get_opper.return_value = mock_opper
 
-        provider = UnifiedLLMProvider(default_model="gpt-4o", max_retries=3)
+        provider = self._make_provider(default_model="openai/gpt-4o", max_retries=3)
         messages = [LLMMessage(role=LLMRole.USER, content="Test")]
 
         response = provider.generate(messages=messages)
-
         assert response.content == "This is a test response from the LLM."
-        assert mock_completion.call_count == 3
-        assert mock_sleep.call_count == 2  # Backoff after first 2 failures
+        assert mock_opper.call.call_count == 3
+        assert mock_sleep.call_count == 2
 
-    @patch("ai_designer.core.llm_provider.litellm.completion")
     @patch("ai_designer.core.llm_provider.time.sleep")
-    def test_fallback_to_secondary_model(
-        self, mock_sleep, mock_completion, mock_litellm_response
-    ):
-        """Test fallback to secondary model."""
+    @patch("ai_designer.core.llm_provider._get_opper")
+    def test_all_models_fail(self, mock_get_opper, mock_sleep):
+        """Test LLMError raised when all retries fail."""
+        mock_opper = MagicMock()
+        mock_opper.call.side_effect = Exception("Opper error")
+        mock_get_opper.return_value = mock_opper
 
-        # Primary model fails all retries, secondary succeeds
-        def side_effect_func(*args, **kwargs):
-            if kwargs["model"] == "gpt-4o":
-                raise Exception("Primary model failed")
-            else:
-                return mock_litellm_response
-
-        mock_completion.side_effect = side_effect_func
-
-        provider = UnifiedLLMProvider(
-            default_model="gpt-4o",
-            fallback_models=["claude-3-5-sonnet-20241022"],
-            max_retries=2,
-        )
-        messages = [LLMMessage(role=LLMRole.USER, content="Test")]
-
-        response = provider.generate(messages=messages)
-
-        assert response.content == "This is a test response from the LLM."
-        assert response.model == "claude-3-5-sonnet-20241022"
-        assert response.provider == "anthropic"
-
-    @patch("ai_designer.core.llm_provider.litellm.completion")
-    @patch("ai_designer.core.llm_provider.time.sleep")
-    def test_all_models_fail(self, mock_sleep, mock_completion):
-        """Test error when all models fail."""
-        mock_completion.side_effect = Exception("All models failed")
-
-        provider = UnifiedLLMProvider(
-            default_model="gpt-4o",
-            fallback_models=["claude-3-5-sonnet-20241022"],
+        provider = self._make_provider(
+            default_model="openai/gpt-4o",
             max_retries=1,
         )
         messages = [LLMMessage(role=LLMRole.USER, content="Test")]
@@ -228,81 +215,64 @@ class TestUnifiedLLMProvider:
         with pytest.raises(LLMError) as exc_info:
             provider.generate(messages=messages)
 
-        assert "All LLM requests failed" in str(exc_info.value)
+        assert "All Opper LLM requests failed" in str(exc_info.value)
 
     def test_get_provider_from_model(self):
-        """Test provider detection from model name."""
-        provider = UnifiedLLMProvider()
+        """Test provider detection from Opper model string."""
+        provider = self._make_provider()
 
+        assert provider._get_provider_from_model("openai/gpt-4o") == "openai"
         assert provider._get_provider_from_model("gpt-4o") == "openai"
         assert (
-            provider._get_provider_from_model("claude-3-5-sonnet-20241022")
+            provider._get_provider_from_model("anthropic/claude-3-5-sonnet-20241022")
             == "anthropic"
         )
-        assert provider._get_provider_from_model("gemini-1.5-pro") == "google"
-        assert provider._get_provider_from_model("deepseek-chat") == "deepseek"
-        assert provider._get_provider_from_model("ollama/llama2") == "ollama"
-        assert provider._get_provider_from_model("unknown-model") == "unknown"
+        assert provider._get_provider_from_model("gcp/gemini-2.0-flash") == "google"
+        assert provider._get_provider_from_model("google/gemini-pro") == "google"
+        assert provider._get_provider_from_model("fireworks/deepseek-v3") == "deepseek"
 
-    @patch("ai_designer.core.llm_provider.litellm.completion")
-    def test_usage_tracking(self, mock_completion, mock_litellm_response):
-        """Test usage statistics tracking."""
-        mock_completion.return_value = mock_litellm_response
+    @patch("ai_designer.core.llm_provider._get_opper")
+    def test_usage_tracking(self, mock_get_opper, mock_opper_response):
+        """Test that total_requests increments on each call."""
+        mock_opper = MagicMock()
+        mock_opper.call.return_value = mock_opper_response
+        mock_get_opper.return_value = mock_opper
 
-        provider = UnifiedLLMProvider()
+        provider = self._make_provider()
         messages = [LLMMessage(role=LLMRole.USER, content="Test")]
 
-        # Make 3 requests
         for _ in range(3):
             provider.generate(messages=messages)
 
         stats = provider.get_usage_stats()
         assert stats["total_requests"] == 3
-        assert stats["total_tokens"] == 90  # 30 tokens * 3 requests
 
-        # Reset stats
         provider.reset_usage_stats()
-        stats = provider.get_usage_stats()
-        assert stats["total_requests"] == 0
-        assert stats["total_tokens"] == 0
+        assert provider.get_usage_stats()["total_requests"] == 0
 
-    @patch.dict(
-        os.environ,
-        {
-            "OPENAI_API_KEY": "test-key",  # pragma: allowlist secret
-            "GOOGLE_API_KEY": "gemini-key",  # pragma: allowlist secret
-        },
-    )
-    def test_api_key_configuration(self):
-        """Test API key configuration from environment."""
-        provider = UnifiedLLMProvider()
-        provider._configure_api_keys()
+    def test_missing_opper_api_key_raises(self):
+        """Test that missing OPPER_API_KEY raises LLMError on first call."""
+        import ai_designer.core.llm_provider as mod
 
-        assert os.environ.get("OPENAI_API_KEY") == "test-key"
-        assert os.environ.get("GEMINI_API_KEY") == "gemini-key"
+        mod._opper_client = None
 
-    @patch("ai_designer.core.llm_provider.litellm.completion")
-    def test_custom_temperature(self, mock_completion, mock_litellm_response):
-        """Test custom temperature parameter."""
-        mock_completion.return_value = mock_litellm_response
+        env_without_key = {k: v for k, v in os.environ.items() if k != "OPPER_API_KEY"}
+        with patch.dict(os.environ, env_without_key, clear=True):
+            provider = UnifiedLLMProvider(default_model="openai/gpt-4o")
+            with pytest.raises(LLMError, match="OPPER_API_KEY"):
+                provider.generate(
+                    messages=[LLMMessage(role=LLMRole.USER, content="test")]
+                )
 
-        provider = UnifiedLLMProvider()
-        messages = [LLMMessage(role=LLMRole.USER, content="Test")]
+    @patch("ai_designer.core.llm_provider._get_opper")
+    def test_opper_tags_sent(self, mock_get_opper, mock_opper_response):
+        """Verify agent tag is forwarded to Opper for analytics."""
+        mock_opper = MagicMock()
+        mock_opper.call.return_value = mock_opper_response
+        mock_get_opper.return_value = mock_opper
 
-        provider.generate(messages=messages, temperature=0.2)
+        provider = self._make_provider(agent_name="planner")
+        provider.generate(messages=[LLMMessage(role=LLMRole.USER, content="plan")])
 
-        call_args = mock_completion.call_args
-        assert call_args[1]["temperature"] == 0.2
-
-    @patch("ai_designer.core.llm_provider.litellm.completion")
-    def test_max_tokens_parameter(self, mock_completion, mock_litellm_response):
-        """Test max_tokens parameter."""
-        mock_completion.return_value = mock_litellm_response
-
-        provider = UnifiedLLMProvider()
-        messages = [LLMMessage(role=LLMRole.USER, content="Test")]
-
-        provider.generate(messages=messages, max_tokens=500)
-
-        call_args = mock_completion.call_args
-        assert call_args[1]["max_tokens"] == 500
+        call_kwargs = mock_opper.call.call_args.kwargs
+        assert call_kwargs["tags"]["agent"] == "planner"

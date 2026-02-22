@@ -37,7 +37,7 @@ class SecureConfig:
         """
         self._config: Dict[str, Any] = {}
         self._sensitive_keys = {
-            "GOOGLE_API_KEY",
+            "OPPER_API_KEY",
             "REDIS_PASSWORD",
             "DATABASE_PASSWORD",
             "SECRET_KEY",
@@ -98,7 +98,7 @@ class SecureConfig:
     def _load_from_environment(self) -> None:
         """Load configuration from environment variables"""
         # Required configuration
-        required_keys = ["GOOGLE_API_KEY"]
+        required_keys = ["OPPER_API_KEY"]
 
         # Optional configuration with defaults
         optional_config = {
@@ -129,15 +129,10 @@ class SecureConfig:
 
     def _validate_configuration(self) -> None:
         """Validate configuration values"""
-        # Validate Google API key format
-        api_key = self._config.get("GOOGLE_API_KEY", "")
-        if not api_key.startswith("AIza"):
-            logger.warning(
-                "Google API key format may be invalid (should start with 'AIza')"
-            )
-
-        if len(api_key) < 30:
-            logger.warning("Google API key appears to be too short")
+        # Validate Opper API key format
+        api_key = self._config.get("OPPER_API_KEY", "")
+        if len(api_key) < 20:
+            logger.warning("Opper API key appears to be too short")
 
         # Convert string values to appropriate types
         try:
@@ -166,19 +161,20 @@ class SecureConfig:
 
     def get_api_key(self) -> str:
         """
-        Get Google API key securely.
+        Get Opper API key securely.
 
         Returns:
-            Google API key
+            Opper API key
 
         Raises:
             ConfigurationError: If API key is not configured
         """
-        api_key = self._config.get("GOOGLE_API_KEY")
+        api_key = self._config.get("OPPER_API_KEY")
         if not api_key:
             raise ConfigurationError(
-                "Google API key is not configured. "
-                "Please set GOOGLE_API_KEY in your .env file."
+                "Opper API key is not configured. "
+                "Please set OPPER_API_KEY in your .env file. "
+                "Get your key at https://platform.opper.ai/"
             )
         return api_key
 

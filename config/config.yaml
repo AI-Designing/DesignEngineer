@@ -22,32 +22,16 @@ freecad:
   # Auto-detected based on installation type
   execution_mode: "auto"
 
-# Online code generation provider (replaces local DeepSeek R1 via Ollama)
-# Default model: google/gemini-2.0-flash
-# Override with env var: CODEGEN_MODEL=openai/gpt-4o
-# Requires: GOOGLE_API_KEY  (or OPENAI_API_KEY for gpt-4o fallback)
-online_codegen:
-  enabled: true
-  model: "google/gemini-2.0-flash"
-  fallback_model: "openai/gpt-4o"
-  temperature: 0.1
-  max_tokens: 8192
-  timeout: 120
+# Opper.ai platform configuration
+# All LLM calls route through Opper using a single OPPER_API_KEY.
+# See https://docs.opper.ai/capabilities/models for supported models.
+# API key is loaded from the OPPER_API_KEY environment variable.
+opper:
+  default_env_tag: "development"          # Tag applied to every Opper call for analytics
+  max_retries: 3                           # Per-call retry attempts
+  timeout: 120                             # Request timeout in seconds
 
-# DeepSeek R1 Local Configuration (legacy – disabled by default)
-# Set enabled: true only if you are running Ollama locally with deepseek-r1:14b
-deepseek:
-  enabled: false
-  host: "localhost"
-  port: 11434
-  model_name: "deepseek-r1:14b"
-  timeout: 600
-  max_tokens: 8192
-  temperature: 0.1
-  top_p: 0.95
-  reasoning_enabled: true
-  stream: true
-  fallback_to_gemini: true
+# Legacy online_codegen and deepseek sections are replaced by 'opper' above.
 
 redis:
   host: "localhost"

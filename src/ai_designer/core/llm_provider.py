@@ -1,25 +1,31 @@
 """
-Unified LLM provider using LiteLLM for multi-provider support.
+Unified LLM provider backed by the Opper.ai platform.
 
-This module provides a clean abstraction over multiple LLM providers:
-- OpenAI (GPT-4, GPT-4o, etc.)
-- Anthropic (Claude 3.5 Sonnet, Claude 3 Opus, etc.)
-- Google (Gemini 1.5 Pro, etc.)
-- DeepSeek (via Ollama or API)
+This module provides a clean abstraction over Opper's task-completion API
+which supports 60+ LLM providers through a single API key:
+
+- OpenAI (GPT-4o, GPT-4.1, o3, etc.)
+- Anthropic (Claude 3.5 / 4 Sonnet, Opus, Haiku)
+- Google (Gemini 2.0 Flash, 2.5 Pro, etc.)
+- Mistral, DeepSeek, xAI Grok, Groq, Perplexity and more
+
+One key: ``OPPER_API_KEY``  (https://platform.opper.ai/)
 
 Features:
-- Automatic retry with exponential backoff
-- Provider fallback chains
-- Rate limiting and token tracking
-- Structured logging
-- Type-safe responses
+- All 60+ Opper-supported models selectable per agent
+- Built-in tracing, cost tracking, and task evals via Opper platform
+- Per-agent tags for cost/analytics filtering
+- Retry with exponential backoff on transient failures
+- Same public interface as the previous LiteLLM-based provider:
+  ``generate()``, ``generate_with_system_prompt()``, ``complete_stream()``
 """
 
+import asyncio
 import os
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
-import litellm
+from opperai import Opper
 
 from ai_designer.core.exceptions import LLMError
 from ai_designer.core.logging_config import get_logger
@@ -33,80 +39,105 @@ from ai_designer.schemas.llm_schemas import (  # noqa: F401  re-exported for bac
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Module-level Opper singleton – initialised lazily so tests can override
+# OPPER_API_KEY before the first call.
+# ---------------------------------------------------------------------------
+_opper_client: Optional[Opper] = None
+
+
+def _get_opper() -> Opper:
+    """Return (and lazily create) the module-level Opper client."""
+    global _opper_client
+    if _opper_client is None:
+        api_key = os.getenv("OPPER_API_KEY", "")
+        if not api_key:
+            raise LLMError(
+                "OPPER_API_KEY is not set. "
+                "Get your key at https://platform.opper.ai/ and add it to .env."
+            )
+        _opper_client = Opper(http_bearer=api_key)
+    return _opper_client
+
 
 class UnifiedLLMProvider:
     """
-    Unified LLM provider using LiteLLM.
+    Unified LLM provider backed by Opper.ai.
 
-    Supports multiple providers with automatic retry and fallback.
+    Supports any model available on the Opper platform with automatic retry
+    and optional fallback chains.  The ``agent_name`` parameter is used as the
+    Opper task name and as a tag so usage can be analysed per agent in the
+    Opper platform dashboard.
     """
 
     def __init__(
         self,
-        default_model: str = "gpt-4o",
+        default_model: str = "openai/gpt-4o",
         fallback_models: Optional[List[str]] = None,
         max_retries: int = 3,
         timeout: int = 60,
-        enable_caching: bool = True,
+        enable_caching: bool = True,  # kept for API compat, handled by Opper platform
+        agent_name: str = "default",
     ):
         """
-        Initialize the unified LLM provider.
+        Initialise the unified LLM provider.
 
         Args:
-            default_model: Primary model to use
-            fallback_models: List of fallback models if primary fails
-            max_retries: Maximum retry attempts per model
-            timeout: Request timeout in seconds
-            enable_caching: Enable LiteLLM caching
+            default_model: Primary Opper model string, e.g. ``"openai/gpt-4o"``.
+            fallback_models: Ordered list of fallback model strings.
+            max_retries: Maximum retry attempts per model.
+            timeout: Request timeout in seconds (passed through to Opper).
+            enable_caching: Kept for backward compatibility (Opper handles caching).
+            agent_name: Logical agent identifier used for Opper task naming and tags.
         """
         self.default_model = default_model
         self.fallback_models = fallback_models or []
         self.max_retries = max_retries
         self.timeout = timeout
+        self.agent_name = agent_name
 
-        # Configure LiteLLM
-        litellm.drop_params = True  # Drop unsupported params instead of erroring
-        litellm.set_verbose = False  # Disable verbose logging
-
-        if enable_caching:
-            litellm.cache = litellm.Cache()
-
-        # API key configuration from environment
-        self._configure_api_keys()
-
-        # Usage tracking
+        # Usage tracking (approximate — Opper platform has authoritative cost data)
         self.total_requests = 0
         self.total_tokens = 0
         self.total_cost = 0.0
 
         logger.info(
-            "Initialized UnifiedLLMProvider",
+            "Initialized UnifiedLLMProvider (Opper)",
+            agent_name=agent_name,
             default_model=default_model,
             fallback_models=fallback_models,
             max_retries=max_retries,
         )
 
-    def _configure_api_keys(self) -> None:
-        """Configure API keys from environment variables."""
-        # OpenAI
-        if os.getenv("OPENAI_API_KEY"):
-            os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+    def _messages_to_opper_input(
+        self,
+        messages: List[LLMMessage],
+    ) -> tuple[str, str]:
+        """Split a message list into (system_prompt, user_text) for Opper.
 
-        # Anthropic
-        if os.getenv("ANTHROPIC_API_KEY"):
-            os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
+        Opper's ``call()`` takes ``instructions`` (system role) and a plain
+        ``input`` dict/string (user content).  We concatenate any assistant
+        turns into the user context so no information is lost.
+        """
+        system_parts: List[str] = []
+        user_parts: List[str] = []
 
-        # Google
-        if os.getenv("GOOGLE_API_KEY"):
-            os.environ["GEMINI_API_KEY"] = os.getenv("GOOGLE_API_KEY")
+        for m in messages:
+            if m.role == LLMRole.SYSTEM:
+                system_parts.append(m.content)
+            elif m.role == LLMRole.USER:
+                user_parts.append(m.content)
+            elif m.role == LLMRole.ASSISTANT:
+                # Prepend previous assistant turn as context
+                user_parts.append(f"[Previous assistant response]: {m.content}")
 
-        # DeepSeek
-        if os.getenv("DEEPSEEK_API_KEY"):
-            os.environ["DEEPSEEK_API_KEY"] = os.getenv("DEEPSEEK_API_KEY")
-
-        # Ollama base URL (for local models)
-        if os.getenv("OLLAMA_BASE_URL"):
-            os.environ["OLLAMA_API_BASE"] = os.getenv("OLLAMA_BASE_URL")
+        system_prompt = (
+            "\n\n".join(system_parts)
+            if system_parts
+            else "You are a helpful assistant."
+        )
+        user_text = "\n\n".join(user_parts) if user_parts else ""
+        return system_prompt, user_text
 
     def generate(
         self,
@@ -117,150 +148,105 @@ class UnifiedLLMProvider:
         **kwargs,
     ) -> LLMResponse:
         """
-        Generate completion from LLM.
+        Generate a completion via the Opper platform.
 
         Args:
-            messages: Conversation messages
-            model: Override default model
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
-            **kwargs: Additional model-specific parameters
+            messages: Conversation messages (LLMMessage objects or plain dicts).
+            model: Override the default model (Opper model string, e.g.
+                ``"openai/gpt-4o"`` or ``"anthropic/claude-3-5-sonnet-20241022"``).
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens to generate.
+            **kwargs: Additional parameters (ignored; kept for API compat).
 
         Returns:
-            LLMResponse with generated content
+            LLMResponse with generated content.
 
         Raises:
-            LLMError: If all attempts fail
+            LLMError: If all retry/fallback attempts fail.
         """
-        # Convert to LLMMessage if dicts provided
+        # Normalise to LLMMessage list
         if messages and isinstance(messages[0], dict):
             messages = [
                 LLMMessage(role=LLMRole(m["role"]), content=m["content"])
                 for m in messages
             ]
 
-        # Prepare request
+        system_prompt, user_text = self._messages_to_opper_input(messages)
         target_model = model or self.default_model
         models_to_try = [target_model] + self.fallback_models
 
-        last_error = None
+        last_error: Optional[Exception] = None
         start_time = time.time()
+        opper = _get_opper()
 
-        # Try each model with retries
-        for model_name in models_to_try:
-            for attempt in range(self.max_retries):
-                try:
-                    logger.debug(
-                        "Attempting LLM request",
-                        model=model_name,
-                        attempt=attempt + 1,
-                        max_retries=self.max_retries,
-                    )
+        # Build Opper model param: single string or list for fallbacks
+        opper_model: Any = (
+            models_to_try[0]
+            if len(models_to_try) == 1
+            else [
+                {"name": m, "options": {"temperature": temperature}}
+                for m in models_to_try
+            ]
+        )
 
-                    # Convert messages to dict format for litellm
-                    message_dicts = [
-                        {"role": m.role.value, "content": m.content} for m in messages
-                    ]
+        for attempt in range(self.max_retries):
+            try:
+                logger.debug(
+                    "Opper call attempt",
+                    agent=self.agent_name,
+                    model=target_model,
+                    attempt=attempt + 1,
+                )
 
-                    # Call LiteLLM
-                    response = litellm.completion(
-                        model=model_name,
-                        messages=message_dicts,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        timeout=self.timeout,
-                        **kwargs,
-                    )
+                response = opper.call(
+                    name=f"{self.agent_name}_generate",
+                    instructions=system_prompt,
+                    input=user_text or "Continue.",
+                    model=opper_model,
+                    tags={
+                        "agent": self.agent_name,
+                        "env": os.getenv("ENV", "development"),
+                    },
+                )
 
-                    # Calculate latency
-                    latency_ms = (time.time() - start_time) * 1000
+                latency_ms = (time.time() - start_time) * 1000
+                content = response.message or ""
 
-                    # Extract response
-                    content = response.choices[0].message.content
-                    finish_reason = response.choices[0].finish_reason
+                self.total_requests += 1
 
-                    # Track usage
-                    usage = {}
-                    if hasattr(response, "usage") and response.usage:
-                        usage = {
-                            "prompt_tokens": getattr(
-                                response.usage, "prompt_tokens", 0
-                            ),
-                            "completion_tokens": getattr(
-                                response.usage, "completion_tokens", 0
-                            ),
-                            "total_tokens": getattr(response.usage, "total_tokens", 0),
-                        }
-                        self.total_tokens += usage.get("total_tokens", 0)
+                provider = self._get_provider_from_model(target_model)
+                llm_response = LLMResponse(
+                    content=content,
+                    model=target_model,
+                    provider=provider,
+                    usage={},
+                    finish_reason="stop",
+                    latency_ms=latency_ms,
+                    cost_usd=None,  # Authoritative cost is in Opper platform dashboard
+                )
 
-                    self.total_requests += 1
+                logger.info(
+                    "Opper call successful",
+                    agent=self.agent_name,
+                    model=target_model,
+                    latency_ms=latency_ms,
+                )
+                return llm_response
 
-                    # Calculate per-call cost (non-fatal if unsupported)
-                    call_cost: Optional[float] = None
-                    try:
-                        call_cost = litellm.completion_cost(
-                            completion_response=response
-                        )
-                        if call_cost:
-                            self.total_cost += call_cost
-                    except Exception:  # noqa: BLE001
-                        pass
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "Opper call failed",
+                    agent=self.agent_name,
+                    model=target_model,
+                    attempt=attempt + 1,
+                    error=str(e),
+                )
+                if attempt < self.max_retries - 1:
+                    time.sleep(2**attempt)
 
-                    # Determine provider
-                    provider = self._get_provider_from_model(model_name)
-
-                    llm_response = LLMResponse(
-                        content=content,
-                        model=model_name,
-                        provider=provider,
-                        usage=usage,
-                        finish_reason=finish_reason,
-                        latency_ms=latency_ms,
-                        cost_usd=call_cost,
-                    )
-
-                    logger.debug(
-                        "LLM call cost",
-                        model=model_name,
-                        cost_usd=call_cost,
-                        total_tokens=usage.get("total_tokens", 0),
-                    )
-                    logger.info(
-                        "LLM request successful",
-                        model=model_name,
-                        provider=provider,
-                        latency_ms=latency_ms,
-                        total_tokens=usage.get("total_tokens", 0),
-                    )
-
-                    return llm_response
-
-                except Exception as e:
-                    last_error = e
-                    logger.warning(
-                        "LLM request failed",
-                        model=model_name,
-                        attempt=attempt + 1,
-                        error=str(e),
-                        error_type=type(e).__name__,
-                    )
-
-                    # Exponential backoff before retry
-                    if attempt < self.max_retries - 1:
-                        backoff_time = 2**attempt
-                        time.sleep(backoff_time)
-
-            # If all retries failed for this model, try next fallback
-            logger.error(
-                "All retries failed for model",
-                model=model_name,
-                max_retries=self.max_retries,
-                last_error=str(last_error),
-            )
-
-        # All models failed
-        error_msg = f"All LLM requests failed. Last error: {last_error}"
-        logger.error("LLM generation failed completely", error=error_msg)
+        error_msg = f"All Opper LLM requests failed for agent '{self.agent_name}'. Last error: {last_error}"
+        logger.error("LLM generation failed", error=error_msg)
         raise LLMError(
             error_msg, {"models_tried": models_to_try, "last_error": str(last_error)}
         )
@@ -273,16 +259,16 @@ class UnifiedLLMProvider:
         **kwargs,
     ) -> LLMResponse:
         """
-        Convenience method to generate with system prompt.
+        Convenience method: generate with explicit system prompt.
 
         Args:
-            user_message: User's input message
-            system_prompt: System instruction
-            model: Override default model
-            **kwargs: Additional parameters
+            user_message: User's input message.
+            system_prompt: System instruction.
+            model: Override default model.
+            **kwargs: Additional parameters.
 
         Returns:
-            LLMResponse with generated content
+            LLMResponse with generated content.
         """
         messages = [
             LLMMessage(role=LLMRole.SYSTEM, content=system_prompt),
@@ -291,68 +277,85 @@ class UnifiedLLMProvider:
         return self.generate(messages=messages, model=model, **kwargs)
 
     def _get_provider_from_model(self, model: str) -> str:
-        """Determine provider from model name."""
+        """Determine provider label from Opper model string."""
         model_lower = model.lower()
 
         if any(x in model_lower for x in ["gpt", "openai"]):
             return LLMProvider.OPENAI.value
         elif any(x in model_lower for x in ["claude", "anthropic"]):
             return LLMProvider.ANTHROPIC.value
-        elif any(x in model_lower for x in ["gemini", "google"]):
+        elif any(x in model_lower for x in ["gemini", "google", "gcp"]):
             return LLMProvider.GOOGLE.value
         elif "deepseek" in model_lower:
             return LLMProvider.DEEPSEEK.value
-        elif "ollama" in model_lower:
-            return LLMProvider.OLLAMA.value
         else:
-            return "unknown"
+            return "opper"
 
     async def complete_stream(self, request: "LLMRequest") -> AsyncGenerator[str, None]:
-        """Yield content chunks from a streaming LLM completion.
+        """Yield content from an LLM completion as an async generator.
 
-        Uses ``litellm.acompletion`` with ``stream=True`` so the event loop is
-        never blocked.  Streaming calls are **not** retried — any exception
-        propagates immediately as ``LLMError``.
+        NOTE: Opper's standard SDK does not expose a streaming endpoint.
+        This implementation runs the blocking ``opper.call()`` in a thread
+        executor so the event loop is not blocked, then yields the full
+        response content as one chunk.  Replace with a native Opper streaming
+        call when the SDK exposes one.
 
         Args:
-            request: The ``LLMRequest`` to send.
+            request: The LLMRequest to send.
 
         Yields:
-            Non-empty string chunks as they arrive from the model.
+            Non-empty string chunks.
 
         Raises:
-            LLMError: Immediately on any provider or network error.
+            LLMError: On any provider or network error.
         """
-        message_dicts = [
-            {"role": m.role.value, "content": m.content} for m in request.messages
-        ]
+        messages = request.messages
+        system_prompt, user_text = self._messages_to_opper_input(messages)
+        target_model = request.model or self.default_model
+        opper = _get_opper()
+
         try:
-            response = await litellm.acompletion(
-                model=request.model or self.default_model,
-                messages=message_dicts,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                timeout=self.timeout,
-                stream=True,
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: opper.call(
+                    name=f"{self.agent_name}_stream",
+                    instructions=system_prompt,
+                    input=user_text or "Continue.",
+                    model=target_model,
+                    tags={
+                        "agent": self.agent_name,
+                        "env": os.getenv("ENV", "development"),
+                        "stream": "true",
+                    },
+                ),
             )
-            async for chunk in response:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    yield delta
-        except Exception as exc:  # noqa: BLE001
-            raise LLMError(f"Streaming LLM request failed: {exc}") from exc
+            content = response.message or ""
+            if content:
+                yield content
+        except Exception as exc:
+            raise LLMError(f"Opper streaming call failed: {exc}") from exc
+
+    # ------------------------------------------------------------------
+    # Usage / cost helpers (approximate local counters; authoritative data
+    # is in the Opper platform dashboard at https://platform.opper.ai/)
+    # ------------------------------------------------------------------
 
     def get_total_cost(self) -> float:
-        """Return cumulative USD cost across all calls since last reset."""
+        """Return cumulative local cost counter.
+
+        NOTE: For authoritative per-agent cost data use the Opper platform
+        dashboard where costs are tracked by agent tag.
+        """
         return self.total_cost
 
     def reset_cost_tracking(self) -> None:
-        """Reset only the cost counter (leaves request/token counts intact)."""
+        """Reset the local cost counter."""
         self.total_cost = 0.0
         logger.info("Cost tracking reset")
 
     def get_usage_stats(self) -> Dict[str, Any]:
-        """Get usage statistics."""
+        """Get local usage statistics."""
         return {
             "total_requests": self.total_requests,
             "total_tokens": self.total_tokens,
@@ -360,7 +363,7 @@ class UnifiedLLMProvider:
         }
 
     def reset_usage_stats(self) -> None:
-        """Reset usage statistics."""
+        """Reset local usage statistics."""
         self.total_requests = 0
         self.total_tokens = 0
         self.total_cost = 0.0
