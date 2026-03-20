@@ -112,6 +112,28 @@ class FreeCADPathResolver:
         if path.suffix == ".AppImage" and path.exists():
             return self._extract_appimage_paths(str(path))
 
+        # Handle extracted AppImage AppRun binary
+        if path.name == "AppRun" and path.exists():
+            # Extracted AppImage layout: AppRun lives next to usr/lib and usr/Mod
+            usr_lib = path.parent / "usr" / "lib"
+            usr_mod = path.parent / "usr" / "Mod"
+            # Fallback to top-level lib/Mod if usr/ layout not present
+            top_lib = path.parent / "lib"
+            top_mod = path.parent / "Mod"
+            if usr_lib.exists():
+                lib_dir = str(usr_lib)
+                mod_dir = str(usr_mod) if usr_mod.exists() else str(usr_lib)
+            elif top_lib.exists():
+                lib_dir = str(top_lib)
+                mod_dir = str(top_mod) if top_mod.exists() else str(top_lib)
+            else:
+                lib_dir = str(path.parent)
+                mod_dir = str(path.parent)
+            logger.info(
+                f"Resolved extracted AppImage paths via AppRun: lib={lib_dir}, mod={mod_dir}"
+            )
+            return (lib_dir, mod_dir)
+
         # Handle directory path
         if path.is_dir():
             lib_path = path / "lib"

@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import redis
@@ -7,9 +8,9 @@ from redis.connection import ConnectionPool
 class RedisClient:
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6379,
-        db: int = 0,
+        host: str = os.getenv("REDIS_HOST", "localhost"),
+        port: int = int(os.getenv("REDIS_PORT", 6379)),
+        db: int = int(os.getenv("REDIS_DB", 0)),
         max_connections: int = 50,
     ):
         self.host = host

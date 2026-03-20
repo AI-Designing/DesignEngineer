@@ -123,72 +123,58 @@ class UnifiedLLMManager:
             self._llm_provider = None
             logger.warning("⚠️ Could not initialise litellm provider: %s", _e)
 
-        # Initialize legacy providers (backward compat — DeepSeek local skipped,
-        # Google Gemini still attempted if GOOGLE_API_KEY is set)
+        # Initialize legacy providers for backward compat
         self._initialize_providers()
 
+        opper_ok = self._llm_provider is not None
         logger.info("🚀 Unified LLM Manager initialized")
-        logger.info(f"   Available providers: {list(self.providers.keys())}")
-
-    def _initialize_providers(self):
-        """Initialize all available LLM providers"""
-
-        # Initialize DeepSeek R1 – skipped; code generation is now routed through
-        # OnlineCodeGenClient (litellm-backed). Mark as unavailable so the fallback
-        # chain falls through to Google Gemini / litellm automatically.
-        self.providers[LLMProvider.DEEPSEEK_R1] = {
-            "client": None,
-            "manager": None,
-            "available": False,
-            "type": "online",
-            "note": "Replaced by OnlineCodeGenClient (google/gemini-2.0-flash)",
-        }
         logger.info(
-            "\u2139\ufe0f DeepSeek R1 local provider disabled; using OnlineCodeGenClient"
+            "   Opper (primary): %s", "✅ Available" if opper_ok else "❌ Unavailable"
         )
 
-        # Initialize Google Gemini
-        try:
-            google_api_key = self.config.get("google_api_key") or os.getenv(
-                "GOOGLE_API_KEY"
-            )
-            if google_api_key:
-                gemini_client = LLMClient(
-                    api_key=google_api_key,
-                    model_name=self.config.get("gemini_model", "gemini-1.5-flash"),
-                    provider="google",
-                )
-                self.providers[LLMProvider.GOOGLE_GEMINI] = {
-                    "client": gemini_client,
-                    "available": True,
-                    "type": "api",
-                }
-                logger.info("✅ Google Gemini provider initialized")
-            else:
-                raise ValueError("Google API key not found")
-        except Exception as e:
-            logger.warning(f"⚠️ Google Gemini initialization failed: {e}")
-            self.providers[LLMProvider.GOOGLE_GEMINI] = {
+    def _initialize_providers(self):
+        """Initialize legacy provider slots for backward compat.
+
+        All generation is now routed through the Opper-backed
+        :class:`~ai_designer.core.llm_provider.UnifiedLLMProvider`
+        (``self._llm_provider``).  Legacy slots are kept so external code that
+        references ``self.providers`` by key does not break.
+        """
+        # Both legacy providers are disabled — generation goes through Opper.
+        for legacy in (LLMProvider.DEEPSEEK_R1, LLMProvider.GOOGLE_GEMINI):
+            self.providers[legacy] = {
                 "client": None,
                 "available": False,
-                "type": "api",
-                "error": str(e),
+                "type": "opper_delegated",
+                "note": "Generation delegated to Opper (OPPER_API_KEY)",
             }
 
     def set_active_provider(self, provider: LLMProvider) -> bool:
-        """Set the active LLM provider"""
+        """Set the active LLM provider.
+
+        When Opper is the backend (``self._llm_provider`` is set), all
+        providers are effectively available through it.  Requests to activate
+        a specific legacy slot (deepseek / google) are accepted and stored so
+        callers don't break; actual generation still goes through Opper.
+        """
         if provider == LLMProvider.AUTO:
             self.active_provider = provider
             logger.info("🤖 Set to AUTO mode - will select best provider per request")
             return True
 
-        if provider not in self.providers:
-            logger.error(f"❌ Provider {provider.value} not recognized")
-            return False
+        # When Opper is active, honour the selection without erroring out
+        if self._llm_provider is not None:
+            self.active_provider = provider
+            logger.info(
+                "✅ Active provider set to %s (generation via Opper)", provider.value
+            )
+            return True
 
-        if not self.providers[provider]["available"]:
+        if provider not in self.providers or not self.providers[provider]["available"]:
             logger.error(
-                f"❌ Provider {provider.value} not available: {self.providers[provider].get('error', 'Unknown error')}"
+                "❌ Provider %s not available: %s",
+                provider.value,
+                self.providers.get(provider, {}).get("error", "Unknown error"),
             )
             return False
 

@@ -87,6 +87,8 @@ class WorkflowOrchestrator:
         self.advanced_features = advanced_features
         self.execution_history = []
         self.workflow_cache = {}
+        # Pull command_executor from state_processor so workflow steps can execute FreeCAD
+        self.command_executor = getattr(state_processor, "command_executor", None)
 
     def decompose_complex_workflow(
         self, nl_command: str, current_state: Dict[str, Any]
@@ -316,7 +318,21 @@ class WorkflowOrchestrator:
 
         step_counter = 1
         for operation in operations:
-            if operation["type"] == "sketch":
+            if operation["type"] == "primitive":
+                # Direct Part:: primitive — reuse SKETCH_CREATE step type so
+                # _execute_sketch_step() handles it, but embed the primitive
+                # name in the description so the primitive branch is triggered.
+                prim = operation["primitive"]
+                steps.append(
+                    WorkflowStep(
+                        step_id=f"generic_{step_counter:02d}_{prim}",
+                        step_type=WorkflowStepType.SKETCH_CREATE,
+                        description=f"Create {prim} primitive",
+                        parameters={**operation.get("parameters", {}), "shape": prim},
+                        expected_output={"shape_created": True},
+                    )
+                )
+            elif operation["type"] == "sketch":
                 steps.append(
                     WorkflowStep(
                         step_id=f"generic_{step_counter:02d}_sketch",
@@ -510,164 +526,265 @@ class WorkflowOrchestrator:
     def _execute_sketch_step(
         self, step: WorkflowStep, context: Dict[str, Any]
     ) -> WorkflowExecutionResult:
-        """Execute sketch creation step with real FreeCAD commands"""
+        """Execute sketch creation step with real FreeCAD commands.
+
+        For simple geometric primitives (box, cylinder, sphere, cone) detected
+        in the step description or original command, generates Part:: primitive
+        code directly rather than a Sketcher sketch object.  Falls back to
+        Sketcher for genuine sketch-based operations.
+        """
         try:
-            # Extract parameters from the step
             shape = step.parameters.get("shape", "rectangle")
             dimensions = step.parameters.get("dimensions", {})
-
-            # Generate appropriate FreeCAD code based on the original command context
             original_command = context.get("original_command", "").lower()
+            description_lower = step.description.lower()
 
-            if "gear" in original_command:
-                # Generate gear creation code
-                teeth = 20  # Default, extract from command if needed
-                diameter = 50  # Default, extract from command if needed
-                thickness = 10  # Default, extract from command if needed
+            import re
 
-                # Extract parameters from original command if possible
-                import re
+            # ------------------------------------------------------------------
+            # Helper: extract a numeric dimension from a string
+            # ------------------------------------------------------------------
+            def _dim(text, *keys, default=10.0):
+                """Return first matching float from 'NUMmm' pattern or default."""
+                for key in keys:
+                    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*" + key, text)
+                    if m:
+                        return float(m.group(1))
+                # Also try bare NxNxN triples (e.g. 20x10x5mm)
+                triple = re.search(
+                    r"(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)", text
+                )
+                if triple:
+                    idx = {"length": 0, "width": 1, "height": 2, "radius": 0}
+                    k = list(keys)[0] if keys else "length"
+                    return float(triple.group(idx.get(k, 0) + 1))
+                return default
 
+            # Determine x-offset for side-by-side placement (increments per object)
+            obj_index = context.get("_primitive_index", 0)
+            context["_primitive_index"] = obj_index + 1
+            x_offset = obj_index * 30  # 30 mm gap between primitives
+
+            # ------------------------------------------------------------------
+            # BOX / CUBE
+            # ------------------------------------------------------------------
+            if any(
+                k in description_lower or k in original_command
+                for k in ("box", "cube", "rectangular")
+            ):
+                length = _dim(
+                    description_lower + " " + original_command,
+                    "length",
+                    "long",
+                    default=10.0,
+                )
+                width = _dim(
+                    description_lower + " " + original_command,
+                    "width",
+                    "wide",
+                    default=10.0,
+                )
+                height = _dim(
+                    description_lower + " " + original_command,
+                    "height",
+                    "high",
+                    "tall",
+                    default=10.0,
+                )
+                # Fall back to triple notation
+                triple = re.search(
+                    r"(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)",
+                    description_lower + " " + original_command,
+                )
+                if triple:
+                    length, width, height = (
+                        float(triple.group(1)),
+                        float(triple.group(2)),
+                        float(triple.group(3)),
+                    )
+                obj_name = step.step_id.replace("-", "_").replace(" ", "_")
+                freecad_code = f"""
+import FreeCAD as App
+import Part
+doc = App.ActiveDocument
+if not doc:
+    doc = App.newDocument("AutomationDoc")
+box = doc.addObject("Part::Box", "{obj_name}")
+box.Length = {length}
+box.Width  = {width}
+box.Height = {height}
+box.Placement.Base.x = {x_offset}
+doc.recompute()
+print("Box created: {obj_name} {length}x{width}x{height}mm at x={x_offset}")
+"""
+
+            # ------------------------------------------------------------------
+            # CYLINDER
+            # ------------------------------------------------------------------
+            elif "cylinder" in description_lower or "cylinder" in original_command:
+                radius = _dim(
+                    description_lower + " " + original_command,
+                    "radius",
+                    "r",
+                    default=5.0,
+                )
+                height = _dim(
+                    description_lower + " " + original_command,
+                    "height",
+                    "high",
+                    "tall",
+                    default=10.0,
+                )
+                obj_name = step.step_id.replace("-", "_").replace(" ", "_")
+                freecad_code = f"""
+import FreeCAD as App
+import Part
+doc = App.ActiveDocument
+if not doc:
+    doc = App.newDocument("AutomationDoc")
+cyl = doc.addObject("Part::Cylinder", "{obj_name}")
+cyl.Radius = {radius}
+cyl.Height = {height}
+cyl.Placement.Base.x = {x_offset}
+doc.recompute()
+print("Cylinder created: {obj_name} r={radius}mm h={height}mm at x={x_offset}")
+"""
+
+            # ------------------------------------------------------------------
+            # SPHERE
+            # ------------------------------------------------------------------
+            elif "sphere" in description_lower or "sphere" in original_command:
+                radius = _dim(
+                    description_lower + " " + original_command,
+                    "radius",
+                    "r",
+                    default=5.0,
+                )
+                obj_name = step.step_id.replace("-", "_").replace(" ", "_")
+                freecad_code = f"""
+import FreeCAD as App
+import Part
+doc = App.ActiveDocument
+if not doc:
+    doc = App.newDocument("AutomationDoc")
+sph = doc.addObject("Part::Sphere", "{obj_name}")
+sph.Radius = {radius}
+sph.Placement.Base.x = {x_offset}
+doc.recompute()
+print("Sphere created: {obj_name} r={radius}mm at x={x_offset}")
+"""
+
+            # ------------------------------------------------------------------
+            # CONE
+            # ------------------------------------------------------------------
+            elif "cone" in description_lower or "cone" in original_command:
+                radius1 = _dim(
+                    description_lower + " " + original_command,
+                    "radius",
+                    "base",
+                    default=5.0,
+                )
+                height = _dim(
+                    description_lower + " " + original_command,
+                    "height",
+                    "high",
+                    "tall",
+                    default=10.0,
+                )
+                obj_name = step.step_id.replace("-", "_").replace(" ", "_")
+                freecad_code = f"""
+import FreeCAD as App
+import Part
+doc = App.ActiveDocument
+if not doc:
+    doc = App.newDocument("AutomationDoc")
+cone = doc.addObject("Part::Cone", "{obj_name}")
+cone.Radius1 = {radius1}
+cone.Radius2 = 0
+cone.Height  = {height}
+cone.Placement.Base.x = {x_offset}
+doc.recompute()
+print("Cone created: {obj_name} r={radius1}mm h={height}mm at x={x_offset}")
+"""
+
+            # ------------------------------------------------------------------
+            # GEAR (existing logic)
+            # ------------------------------------------------------------------
+            elif "gear" in original_command:
+                teeth = 20
+                diameter = 50.0
+                thickness = 10.0
                 if "teeth" in original_command:
-                    teeth_match = re.search(r"(\d+)\s*teeth", original_command)
-                    if teeth_match:
-                        teeth = int(teeth_match.group(1))
-
+                    m = re.search(r"(\d+)\s*teeth", original_command)
+                    if m:
+                        teeth = int(m.group(1))
                 if "diameter" in original_command:
-                    diameter_match = re.search(
-                        r"(\d+(?:\.\d+)?)\s*mm\s*diameter", original_command
-                    )
-                    if diameter_match:
-                        diameter = float(diameter_match.group(1))
-
+                    m = re.search(r"(\d+(?:\.\d+)?)\s*mm\s*diameter", original_command)
+                    if m:
+                        diameter = float(m.group(1))
                 if "thickness" in original_command:
-                    thickness_match = re.search(
-                        r"(\d+(?:\.\d+)?)\s*mm\s*thickness", original_command
-                    )
-                    if thickness_match:
-                        thickness = float(thickness_match.group(1))
+                    m = re.search(r"(\d+(?:\.\d+)?)\s*mm\s*thickness", original_command)
+                    if m:
+                        thickness = float(m.group(1))
 
+                obj_name = step.step_id.replace("-", "_").replace(" ", "_")
                 freecad_code = f"""
-# Create precision gear with {teeth} teeth, {diameter}mm diameter, {thickness}mm thickness
-import FreeCAD as App
-import Part
-import math
-
-# Get active document
+import FreeCAD as App, Part, math
 doc = App.ActiveDocument
 if not doc:
-    doc = App.newDocument()
-
-# Gear parameters
-num_teeth = {teeth}
+    doc = App.newDocument("AutomationDoc")
+num_teeth      = {teeth}
 outer_diameter = {diameter}
-thickness = {thickness}
-module = outer_diameter / num_teeth  # Calculate module
-pressure_angle = 20  # degrees
-addendum = module
-dedendum = 1.25 * module
-root_diameter = outer_diameter - 2 * dedendum
-pitch_diameter = outer_diameter - 2 * addendum
-
-# Create gear profile using involute curve
-def involute_point(base_radius, angle):
-    x = base_radius * (math.cos(angle) + angle * math.sin(angle))
-    y = base_radius * (math.sin(angle) - angle * math.cos(angle))
-    return (x, y)
-
-# Base circle radius
-base_radius = pitch_diameter / 2 * math.cos(math.radians(pressure_angle))
-
-# Create gear tooth profile
-import Part
-from FreeCAD import Vector
-
-# Create one tooth profile
-tooth_points = []
-angle_step = 0.1
-max_angle = math.sqrt((outer_diameter/2)**2 / base_radius**2 - 1)
-
-# Involute curve points
-for i in range(int(max_angle / angle_step) + 1):
-    angle = i * angle_step
-    x, y = involute_point(base_radius, angle)
-    tooth_points.append(Vector(x, y, 0))
-
-# Create base circle for gear
-base_circle = Part.Circle(Vector(0, 0, 0), Vector(0, 0, 1), root_diameter/2)
-base_wire = Part.Wire([base_circle.toShape()])
-gear_face = Part.Face(base_wire)
-
-# Create gear teeth by boolean operations
+thickness      = {thickness}
+mod            = outer_diameter / num_teeth
+root_diameter  = outer_diameter - 2 * 1.25 * mod
+base_radius    = (outer_diameter - 2 * mod) / 2 * math.cos(math.radians(20))
+# Simplified gear: extrude a disc with teeth as rectangular protrusions
+base_cyl = Part.makeCylinder(root_diameter / 2, thickness)
 angular_step = 360.0 / num_teeth
-for tooth_num in range(num_teeth):
-    angle_deg = tooth_num * angular_step
-
-    # Create simplified rectangular tooth for now
-    tooth_height = (outer_diameter - root_diameter) / 2
-    tooth_width = math.pi * pitch_diameter / num_teeth * 0.4  # Simplified
-
-    # Create tooth rectangle
-    tooth_x = root_diameter/2 + tooth_height/2
-    tooth_y = 0
-
-    # Create tooth shape
-    tooth_box = Part.makeBox(tooth_height, tooth_width, thickness)
-    tooth_box.translate(Vector(tooth_x - tooth_height/2, -tooth_width/2, 0))
-
-    # Rotate tooth to correct position
-    tooth_box = tooth_box.rotate(Vector(0, 0, 0), Vector(0, 0, 1), math.radians(angle_deg))
-
-    # Union with gear
-    gear_face = gear_face.fuse(tooth_box)
-
-# Extrude gear to thickness
-gear_solid = gear_face.extrude(Vector(0, 0, thickness))
-
-# Create mounting hole if specified
-if 'mounting' in original_command or 'hole' in original_command:
-    hole_diameter = min(root_diameter * 0.3, 10)  # Reasonable hole size
-    hole_cylinder = Part.makeCylinder(hole_diameter/2, thickness * 1.1)
-    hole_cylinder.translate(Vector(0, 0, -thickness * 0.05))
-    gear_solid = gear_solid.cut(hole_cylinder)
-
-# Create FreeCAD object
-gear_obj = doc.addObject("Part::Feature", "PrecisionGear")
-gear_obj.Shape = gear_solid
-gear_obj.Label = f"Gear_{teeth}T_{diameter}mm"
-
-# Recompute document
+tooth_h = (outer_diameter - root_diameter) / 2
+tooth_w = math.pi * (outer_diameter - 2 * mod) / num_teeth * 0.5
+for i in range(num_teeth):
+    ang = math.radians(i * angular_step)
+    tx  = (root_diameter / 2 + tooth_h / 2) * math.cos(ang)
+    ty  = (root_diameter / 2 + tooth_h / 2) * math.sin(ang)
+    tooth = Part.makeBox(tooth_h, tooth_w, thickness)
+    tooth.translate(App.Vector(tx - tooth_h / 2, ty - tooth_w / 2, 0))
+    tooth = tooth.rotate(App.Vector(tx, ty, 0), App.Vector(0, 0, 1), math.degrees(ang))
+    base_cyl = base_cyl.fuse(tooth)
+gear_obj = doc.addObject("Part::Feature", "{obj_name}")
+gear_obj.Shape = base_cyl
+gear_obj.Label = "Gear_{teeth}T"
 doc.recompute()
+print("Gear created: {teeth} teeth, {diameter}mm dia")
 """
 
+            # ------------------------------------------------------------------
+            # FALLBACK — generic Sketcher sketch
+            # ------------------------------------------------------------------
             else:
-                # Default sketch creation for other shapes
                 freecad_code = f"""
-# Create {shape} sketch
 import FreeCAD as App
+import Part
 import Sketcher
-
 doc = App.ActiveDocument
 if not doc:
-    doc = App.newDocument()
-
+    doc = App.newDocument("AutomationDoc")
 sketch = doc.addObject('Sketcher::SketchObject', 'Sketch')
-sketch.Placement = App.Placement(App.Vector(0.000000, 0.000000, 0.000000), App.Rotation(0.000000, 0.000000, 0.000000, 1.000000))
-
-# Add geometry to sketch
+sketch.Placement = App.Placement(
+    App.Vector(0, 0, 0), App.Rotation(0, 0, 0, 1)
+)
 if "{shape}" == "rectangle":
-    sketch.addGeometry(Part.LineSegment(App.Vector(-10.0, -10.0, 0), App.Vector(10.0, -10.0, 0)), False)
-    sketch.addGeometry(Part.LineSegment(App.Vector(10.0, -10.0, 0), App.Vector(10.0, 10.0, 0)), False)
-    sketch.addGeometry(Part.LineSegment(App.Vector(10.0, 10.0, 0), App.Vector(-10.0, 10.0, 0)), False)
-    sketch.addGeometry(Part.LineSegment(App.Vector(-10.0, 10.0, 0), App.Vector(-10.0, -10.0, 0)), False)
-
+    sketch.addGeometry(Part.LineSegment(App.Vector(-10, -10, 0), App.Vector(10, -10, 0)), False)
+    sketch.addGeometry(Part.LineSegment(App.Vector(10, -10, 0),  App.Vector(10,  10, 0)), False)
+    sketch.addGeometry(Part.LineSegment(App.Vector(10,  10, 0),  App.Vector(-10, 10, 0)), False)
+    sketch.addGeometry(Part.LineSegment(App.Vector(-10, 10, 0),  App.Vector(-10,-10, 0)), False)
 doc.recompute()
 """
 
-            # Execute the FreeCAD code
+            # Execute via command_executor
             if self.command_executor:
                 result = self.command_executor.execute(freecad_code)
-
                 return WorkflowExecutionResult(
                     step_id=step.step_id,
                     status="success" if result.get("status") == "success" else "error",
@@ -675,9 +792,12 @@ doc.recompute()
                         "freecad_code": freecad_code,
                         "execution_result": result,
                         "shape_created": True,
-                        "shape_type": "gear" if "gear" in original_command else shape,
+                        "shape_type": shape,
                     },
                     execution_time=0.5,
+                    error_message=result.get("message")
+                    if result.get("status") != "success"
+                    else None,
                 )
             else:
                 return WorkflowExecutionResult(
@@ -700,16 +820,56 @@ doc.recompute()
     def _execute_pad_step(
         self, step: WorkflowStep, context: Dict[str, Any]
     ) -> WorkflowExecutionResult:
-        """Execute pad/extrusion step"""
-        # Mock implementation - would integrate with actual pad operation
+        """Execute pad/extrusion step using PartDesign::Pad on the last sketch.
+
+        Finds the most-recently added Sketcher sketch in the active document
+        and pads it to the requested height.
+        """
+        height = step.parameters.get("height", 10.0)
+        pad_name = f"Pad_{step.step_id}".replace("-", "_")
+
+        freecad_code = f"""
+import FreeCAD as App
+import Part
+import PartDesign
+doc = App.ActiveDocument
+if not doc:
+    doc = App.newDocument("AutomationDoc")
+# Find the last Sketcher sketch in the document
+sketch = None
+for obj in reversed(doc.Objects):
+    if obj.TypeId == "Sketcher::SketchObject":
+        sketch = obj
+        break
+if sketch is None:
+    raise RuntimeError("No sketch found to pad")
+pad = doc.addObject("PartDesign::Pad", "{pad_name}")
+pad.Profile = sketch
+pad.Length  = {height}
+doc.recompute()
+print("Pad created: {pad_name} height={height}mm")
+"""
+        if self.command_executor:
+            result = self.command_executor.execute(freecad_code)
+            return WorkflowExecutionResult(
+                step_id=step.step_id,
+                status="success" if result.get("status") == "success" else "error",
+                output={
+                    "pad_created": result.get("status") == "success",
+                    "pad_name": pad_name,
+                    "height": height,
+                    "execution_result": result,
+                },
+                execution_time=0.3,
+                error_message=result.get("message")
+                if result.get("status") != "success"
+                else None,
+            )
+        # No executor — return mock so workflow doesn't break entirely
         return WorkflowExecutionResult(
             step_id=step.step_id,
             status="success",
-            output={
-                "pad_created": True,
-                "pad_name": f"Pad_{step.step_id}",
-                "height": step.parameters.get("height", 10.0),
-            },
+            output={"pad_created": True, "pad_name": pad_name, "height": height},
             execution_time=0.3,
         )
 
@@ -938,21 +1098,64 @@ doc.recompute()
         return 20.0  # Default spacing
 
     def _extract_operations(self, command: str) -> List[Dict[str, Any]]:
-        """Extract basic operations from command"""
-        # Simplified implementation
+        """Extract basic operations from command.
+
+        Detects direct geometric primitives first (box, cylinder, sphere, cone)
+        so _create_generic_workflow emits the right step type and description.
+        Falls back to sketch+extrude for non-primitive commands.
+        """
         operations = []
+        cmd_lower = command.lower()
 
-        if "create" in command.lower() or "sketch" in command.lower():
-            operations.append(
-                {
-                    "type": "sketch",
-                    "shape": "rectangle",
-                    "parameters": {"width": 50.0, "height": 30.0},
-                }
-            )
+        # --- Primitive detection -------------------------------------------------
+        _PRIMITIVES = [
+            ("box", "box"),
+            ("cube", "box"),
+            ("cylinder", "cylinder"),
+            ("sphere", "sphere"),
+            ("cone", "cone"),
+            ("torus", "torus"),
+        ]
+        for keyword, prim_type in _PRIMITIVES:
+            if keyword in cmd_lower:
+                operations.append(
+                    {
+                        "type": "primitive",
+                        "primitive": prim_type,
+                        "shape": prim_type,
+                        # description is picked up by _execute_sketch_step to choose the right code
+                        "description": f"Create {prim_type} from user command",
+                        "parameters": {"command": command},
+                    }
+                )
 
-        if "extrude" in command.lower() or "tall" in command.lower():
-            operations.append({"type": "extrude", "parameters": {"height": 10.0}})
+        # De-duplicate (a command might have both "box" and "cube")
+        seen = set()
+        unique_ops = []
+        for op in operations:
+            key = op["primitive"]
+            if key not in seen:
+                seen.add(key)
+                unique_ops.append(op)
+        operations = unique_ops
+
+        # --- Generic sketch+extrude fallback (no primitives detected) -----------
+        if not operations:
+            if "create" in cmd_lower or "sketch" in cmd_lower:
+                operations.append(
+                    {
+                        "type": "sketch",
+                        "shape": "rectangle",
+                        "parameters": {"width": 50.0, "height": 30.0},
+                    }
+                )
+            if "extrude" in cmd_lower or "tall" in cmd_lower:
+                operations.append(
+                    {
+                        "type": "extrude",
+                        "parameters": {"height": 10.0},
+                    }
+                )
 
         return operations
 

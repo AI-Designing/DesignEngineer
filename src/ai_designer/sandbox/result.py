@@ -33,6 +33,7 @@ class ExecutionResult:
         execution_time: Time taken to execute (seconds)
         exit_code: Process exit code (None if not subprocess)
         created_objects: List of FreeCAD objects created
+        document_path: Path to the saved FreeCAD document, if any
         metadata: Additional execution metadata
     """
 
@@ -43,6 +44,7 @@ class ExecutionResult:
     execution_time: float = 0.0
     exit_code: Optional[int] = None
     created_objects: List[str] = field(default_factory=list)
+    document_path: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
 
@@ -56,6 +58,7 @@ class ExecutionResult:
             "execution_time": self.execution_time,
             "exit_code": self.exit_code,
             "created_objects": self.created_objects,
+            "document_path": self.document_path,
             "metadata": self.metadata,
             "timestamp": self.timestamp.isoformat(),
         }

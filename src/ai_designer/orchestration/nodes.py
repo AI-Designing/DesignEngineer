@@ -108,7 +108,9 @@ class PipelineNodes:
                 "complexity": task_graph.complexity_score,
             }
 
-            iteration.output_summary = f"Generated {len(task_graph.nodes)} tasks"
+            iteration.metadata[
+                "output_summary"
+            ] = f"Generated {len(task_graph.nodes)} tasks"
             iteration.completed_at = datetime.utcnow()
 
             # WebSocket callback
@@ -131,7 +133,7 @@ class PipelineNodes:
         except Exception as e:
             logger.error("Planner node failed", error=str(e), exc_info=True)
             state.record_error(f"Planning failed: {str(e)}", "planner")
-            iteration.error_message = str(e)
+            iteration.errors.append(str(e))
             state.design_state.mark_failed(f"Planning failed: {str(e)}")
 
         finally:
@@ -183,10 +185,13 @@ class PipelineNodes:
 
             # Update state
             state.generated_scripts = scripts
-            state.design_state.freecad_script = scripts.get("main", "")
-            state.design_state.generated_code = scripts
+            # Combine all task scripts into the main freecad_script field
+            state.design_state.freecad_script = (
+                "\n\n".join(scripts.values()) if scripts else ""
+            )
+            state.design_state.script_artifacts = {k: v for k, v in scripts.items()}
 
-            iteration.output_summary = f"Generated {len(scripts)} scripts"
+            iteration.metadata["output_summary"] = f"Generated {len(scripts)} scripts"
             iteration.completed_at = datetime.utcnow()
 
             # WebSocket callback
@@ -203,13 +208,12 @@ class PipelineNodes:
             logger.info(
                 "Generator node completed",
                 script_count=len(scripts),
-                has_feedback=feedback is not None,
             )
 
         except Exception as e:
             logger.error("Generator node failed", error=str(e), exc_info=True)
             state.record_error(f"Generation failed: {str(e)}", "generator")
-            iteration.error_message = str(e)
+            iteration.errors.append(str(e))
             state.design_state.mark_failed(f"Generation failed: {str(e)}")
 
         finally:
@@ -228,7 +232,7 @@ class PipelineNodes:
             Updated pipeline state with execution results
         """
         state.enter_node("executor")
-        state.design_state.status = ExecutionStatus.EXECUTING
+        state.design_state.status = ExecutionStatus.GENERATING
 
         try:
             logger.info(
@@ -248,21 +252,22 @@ class PipelineNodes:
             if not state.generated_scripts:
                 raise AIDesignerError("No generated scripts available for execution")
 
-            # Execute main script
-            main_script = state.generated_scripts.get("main")
-            if not main_script:
-                raise AIDesignerError("No main script found in generated scripts")
-
-            result = await self.executor.execute(main_script)
+            # Pass the full scripts dict to executor (it handles combining internally)
+            result = await self.executor.execute(
+                scripts=state.generated_scripts,
+                request_id=str(state.design_state.request_id),
+            )
 
             # Update state
             state.execution_result = {
                 "success": result.get("success", False),
-                "output": result.get("output", ""),
-                "error": result.get("error"),
+                "output": result.get("output", result.get("created_objects", [])),
+                "error": result.get(
+                    "errors", [result.get("error")] if result.get("error") else []
+                ),
                 "execution_time": result.get("execution_time", 0),
+                "document_path": result.get("document_path"),
             }
-            state.design_state.execution_result = result
 
             # WebSocket callback
             if self.websocket_callback:
@@ -343,10 +348,12 @@ class PipelineNodes:
 
             # Update state
             state.validation_result = validation
-            state.design_state.validation_result = validation
+            state.design_state.validation_results = validation.model_dump()
             state.design_state.is_valid = validation.is_valid
 
-            iteration.output_summary = f"Score: {validation.overall_score:.2f}"
+            iteration.metadata[
+                "output_summary"
+            ] = f"Score: {validation.overall_score:.2f}"
             iteration.completed_at = datetime.utcnow()
 
             # WebSocket callback
@@ -371,7 +378,7 @@ class PipelineNodes:
         except Exception as e:
             logger.error("Validator node failed", error=str(e), exc_info=True)
             state.record_error(f"Validation failed: {str(e)}", "validator")
-            iteration.error_message = str(e)
+            iteration.errors.append(str(e))
             state.design_state.mark_failed(f"Validation failed: {str(e)}")
 
         finally:

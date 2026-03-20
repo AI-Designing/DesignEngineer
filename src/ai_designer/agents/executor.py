@@ -154,7 +154,7 @@ class FreeCADExecutor:
             if self.use_headless and self.headless_runner:
                 exec_result = await self.headless_runner.execute_script(
                     script=combined_script,
-                    prompt=f"Executing {len(scripts)} tasks",
+                    user_prompt=f"Executing {len(scripts)} tasks",
                     request_id=request_id,
                     document_name=document_name,
                 )

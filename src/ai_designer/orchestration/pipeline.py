@@ -1,17 +1,16 @@
 """
-LangGraph pipeline construction for the design workflow.
+Pipeline construction for the design workflow.
 
-Builds a StateGraph that orchestrates:
+Builds a state machine that orchestrates:
 - Planner → Generator → Executor → Validator
 - Conditional routing based on validation scores
 - Iteration limits and timeout management
 - WebSocket progress callbacks
 """
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 import structlog
-from langgraph.graph import END, StateGraph
 
 from ai_designer.agents.executor import FreeCADExecutor
 from ai_designer.agents.generator import GeneratorAgent
@@ -30,6 +29,94 @@ from ai_designer.schemas.design_state import DesignRequest, DesignState, Executi
 
 logger = structlog.get_logger(__name__)
 
+# Sentinel – marks graph termination (mirrors LangGraph's END constant)
+END = "__end__"
+
+
+# ---------------------------------------------------------------------------
+# Minimal StateGraph replacement (no langgraph dependency required)
+# ---------------------------------------------------------------------------
+
+
+class _CompiledPipeline:
+    """Runs the state machine produced by StateGraph.compile()."""
+
+    def __init__(
+        self,
+        entry_point: str,
+        nodes: Dict[str, Callable],
+        edges: Dict[str, str],
+        conditional_edges: Dict[str, tuple],  # node → (router_fn, mapping)
+    ):
+        self._entry = entry_point
+        self._nodes = nodes
+        self._edges = edges
+        self._conditional = conditional_edges
+
+    async def ainvoke(self, state: Any) -> Any:
+        current = self._entry
+        while current and current != END:
+            node_fn = self._nodes.get(current)
+            if node_fn is None:
+                break
+            # Support both sync and async node functions
+            import inspect
+
+            if inspect.iscoroutinefunction(node_fn):
+                state = await node_fn(state)
+            else:
+                state = node_fn(state)
+
+            # Determine next node
+            if current in self._conditional:
+                router_fn, mapping = self._conditional[current]
+                route = router_fn(state)
+                # Store the routing decision in state before transitioning
+                if hasattr(state, "next_action"):
+                    state.next_action = route
+                current = mapping.get(route, END)
+            elif current in self._edges:
+                current = self._edges[current]
+            else:
+                current = END
+
+        return state
+
+
+class StateGraph:
+    """Lightweight StateGraph that mimics the LangGraph API surface used here."""
+
+    def __init__(self, state_schema: Any = None):
+        self._nodes: Dict[str, Callable] = {}
+        self._edges: Dict[str, str] = {}
+        self._conditional: Dict[str, tuple] = {}
+        self._entry: Optional[str] = None
+
+    def set_entry_point(self, node: str) -> None:
+        self._entry = node
+
+    def add_node(self, name: str, fn: Callable) -> None:
+        self._nodes[name] = fn
+
+    def add_edge(self, src: str, dst: str) -> None:
+        self._edges[src] = dst
+
+    def add_conditional_edges(
+        self,
+        src: str,
+        router_fn: Callable,
+        mapping: Dict[str, str],
+    ) -> None:
+        self._conditional[src] = (router_fn, mapping)
+
+    def compile(self) -> _CompiledPipeline:
+        return _CompiledPipeline(
+            entry_point=self._entry,
+            nodes=self._nodes,
+            edges=self._edges,
+            conditional_edges=self._conditional,
+        )
+
 
 def build_design_pipeline(
     planner: PlannerAgent,
@@ -38,7 +125,7 @@ def build_design_pipeline(
     executor: Optional[FreeCADExecutor] = None,
     websocket_callback: Optional[Callable] = None,
     max_iterations: int = 5,
-) -> StateGraph:
+) -> _CompiledPipeline:
     """
     Build the LangGraph state machine for design workflow.
 

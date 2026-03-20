@@ -154,13 +154,12 @@ class FreeCADCLI:
 
             print("✅ Unified LLM Manager ready")
 
-            # Show provider status
-            status = self.unified_llm_manager.get_provider_status()
-            for provider, info in status["providers"].items():
-                status_icon = "✅" if info["available"] else "❌"
-                print(
-                    f"   {status_icon} {provider}: {'Available' if info['available'] else 'Unavailable'}"
-                )
+            # Show Opper status (primary) then legacy slots (informational only)
+            opper_ok = self.unified_llm_manager._llm_provider is not None
+            opper_icon = "✅" if opper_ok else "❌"
+            print(
+                f"   {opper_icon} Opper (primary): {'Available' if opper_ok else 'Unavailable — set OPPER_API_KEY'}"
+            )
 
         except Exception as e:
             print(f"⚠️  Unified LLM Manager initialization failed: {e}")

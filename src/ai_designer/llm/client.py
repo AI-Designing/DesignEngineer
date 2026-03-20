@@ -34,7 +34,7 @@ class LLMClient:
                 f"google/{model_name}" if provider == "google" else model_name
             )
         else:
-            default_model = "google/gemini-2.0-flash"
+            default_model = "gcp/gemini-2.0-flash"
 
         self._provider = UnifiedLLMProvider(
             default_model=default_model,

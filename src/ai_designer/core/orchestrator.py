@@ -72,9 +72,14 @@ class SystemOrchestrator:
         try:
             # 1. Initialize State Service (Storage Layer)
             print("🔧 Initializing State Service...")
+            import os as _os
+
             self.state_service = FreeCADStateService(
-                redis_host=self.config.get("redis_host", "localhost"),
-                redis_port=self.config.get("redis_port", 6379),
+                redis_host=self.config.get("redis_host")
+                or _os.getenv("REDIS_HOST", "localhost"),
+                redis_port=int(
+                    self.config.get("redis_port") or _os.getenv("REDIS_PORT", 6379)
+                ),
             )
 
             if self.state_service.connect():

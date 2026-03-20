@@ -1,9 +1,11 @@
+import atexit
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 from ..core.sandbox import (
@@ -11,7 +13,7 @@ from ..core.sandbox import (
     ScriptExecutionError,
     ScriptValidationError,
 )
-from .path_resolver import setup_freecad_paths
+from .path_resolver import get_freecad_executable, setup_freecad_paths
 
 # Setup FreeCAD paths from environment/config
 try:
@@ -29,12 +31,65 @@ except ImportError as e:
     FreeCAD = None
 
 
+# ---------------------------------------------------------------------------
+# Xvfb virtual display — shared across all FreeCADAPIClient instances so we
+# only start one server per process.
+# ---------------------------------------------------------------------------
+_xvfb_process: subprocess.Popen = None
+_xvfb_display: str = ":99"
+
+
+def _ensure_xvfb() -> str:
+    """Start Xvfb :99 if not already running.  Returns the DISPLAY string."""
+    global _xvfb_process, _xvfb_display
+    if _xvfb_process and _xvfb_process.poll() is None:
+        return _xvfb_display  # already running
+
+    # Find an available display number
+    for n in range(99, 110):
+        display = f":{n}"
+        lock = f"/tmp/.X{n}-lock"
+        if not os.path.exists(lock):
+            _xvfb_display = display
+            break
+
+    try:
+        _xvfb_process = subprocess.Popen(
+            ["Xvfb", _xvfb_display, "-screen", "0", "1024x768x24"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(1.5)  # give Xvfb time to bind to the socket
+        atexit.register(_stop_xvfb)
+    except FileNotFoundError:
+        print("Warning: Xvfb not found — FreeCAD subprocess may hang without a display")
+    return _xvfb_display
+
+
+def _stop_xvfb():
+    global _xvfb_process
+    if _xvfb_process and _xvfb_process.poll() is None:
+        _xvfb_process.terminate()
+
+
 class FreeCADAPIClient:
     def __init__(self, use_headless=True):
         self.connection = None
         self.document = None
         self.use_headless = use_headless
-        self.freecad_executable = "freecadcmd" if use_headless else "freecad"
+        # Prefer FREECAD_PATH env var (set in Docker), then auto-detect via path_resolver
+        _env_path = os.getenv("FREECAD_PATH") or os.getenv("FREECADCMD_PATH")
+        if _env_path and os.path.exists(_env_path):
+            self.freecad_executable = _env_path
+        else:
+            if _env_path:
+                print(
+                    f"Warning: FREECAD_PATH={_env_path!r} does not exist, falling back to auto-detect"
+                )
+            try:
+                self.freecad_executable = get_freecad_executable()
+            except Exception:
+                self.freecad_executable = "freecadcmd" if use_headless else "freecad"
         self.freecad_gui_executable = "freecad"  # GUI executable
         self.last_saved_document = None
 
@@ -68,12 +123,19 @@ print("SUCCESS: FreeCAD connection established")
 """
         return self._execute_via_subprocess(test_script)
 
-    def execute_command(self, command):
-        """Execute a FreeCAD command/script"""
+    def execute_command(self, command, save_path=None):
+        """Execute a FreeCAD command/script, optionally saving the document
+        in the same subprocess so state is preserved."""
         if FreeCAD and self.connection:
-            return self._execute_direct(command)
+            result = self._execute_direct(command)
+            # Save directly when FreeCAD is in-process
+            if save_path and result.get("status") == "success":
+                save_result = self.save_document(save_path)
+                if save_result.get("status") == "success":
+                    result["saved_path"] = save_result.get("saved_path", save_path)
+            return result
         else:
-            return self._execute_via_subprocess(command)
+            return self._execute_via_subprocess(command, save_path=save_path)
 
     def _execute_direct(self, command):
         """Execute command using safe sandbox (no direct exec())"""
@@ -124,27 +186,54 @@ print("SUCCESS: FreeCAD connection established")
         except Exception as e:
             return {"status": "error", "message": f"Failed to execute command: {e}"}
 
-    def _execute_via_subprocess(self, command):
-        """Execute command via freecadcmd subprocess"""
+    def _execute_via_subprocess(self, command, save_path=None):
+        """Execute command via FreeCAD AppImage in console mode (-c).
+
+        Uses -c (console/headless) mode so FreeCAD never opens a GUI window,
+        meaning no Xvfb virtual display is required and stdout works normally.
+        A sentinel file is still used for success detection because os._exit(0)
+        does not flush stdout buffers.
+
+        When save_path is provided the document is saved inside the same
+        subprocess so no state is lost between calls.
+        """
+        # Console mode doesn't need a display, but we set DISPLAY as a fallback
+        # in case any FreeCAD module tries to probe it during import.
+        display = _ensure_xvfb()
+        # Build optional save block (4-space indented to match the try block)
+        if save_path:
+            _save_block = f"""
+    # Auto-save within the same subprocess so state is preserved
+    import os as _os
+    _save_dir = _os.path.dirname(\"{save_path}\")
+    if _save_dir:
+        _os.makedirs(_save_dir, exist_ok=True)
+    doc.saveAs(\"{save_path}\")
+    print(f\"SAVED_TO: {save_path}\")
+"""
+        else:
+            _save_block = ""
+
+        # Indent every non-empty line of the command to 4 spaces so it sits
+        # correctly inside the try block in the generated script.
+        indented_command = "\n".join(
+            ("    " + line) if line.strip() else "" for line in command.split("\n")
+        )
+
+        sentinel_path = f"/tmp/freecad_ok_{uuid.uuid4().hex}"
+
         try:
             # Create a temporary Python script
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".py", delete=False
             ) as temp_file:
                 temp_file.write(
-                    f"""
+                    f"""import os
 import sys
-import os
-
-# Setup FreeCAD paths dynamically
-try:
-    from ai_designer.freecad.path_resolver import setup_freecad_paths
-    setup_freecad_paths()
-except Exception as e:
-    print(f"Warning: Could not setup FreeCAD paths: {{e}}")
 
 try:
     import FreeCAD
+    import FreeCAD as App
     import Part
     import Mesh
 
@@ -155,39 +244,61 @@ try:
         doc = FreeCAD.ActiveDocument
 
     # Execute user command
-{command}
+{indented_command}
 
     # Recompute
     doc.recompute()
-
-    print("SUCCESS: Command executed successfully")
+{_save_block}
+    # Write sentinel so the caller can detect success (stdout is swallowed in GUI mode)
+    open("{sentinel_path}", "w").write("ok")
 
 except Exception as e:
-    print(f"ERROR: {{e}}")
-    sys.exit(1)
+    import traceback
+    traceback.print_exc()
+    # os._exit bypasses sys.exit interception so FreeCAD won't log a spurious
+    # 'Exception while processing file' error
+    os._exit(1)
+
+# os._exit(0) avoids FreeCAD catching SystemExit and reporting a false error
+os._exit(0)
 """
                 )
                 temp_file_path = temp_file.name
 
-            # Execute with freecadcmd
+            # -c / --console = headless console mode: no GUI window, stdout works,
+            # and FreeCAD won't misinterpret the .py file as a model to "open".
+            # The script is passed as a positional argument after the flag.
+            env = {**os.environ, "DISPLAY": display}
             result = subprocess.run(
-                [self.freecad_executable, temp_file_path],
+                [self.freecad_executable, "-c", temp_file_path],
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=120,
+                env=env,
             )
 
-            # Clean up
-            os.unlink(temp_file_path)
+            # Clean up temp script AFTER subprocess finishes (blocking call above)
+            try:
+                os.unlink(temp_file_path)
+            except OSError:
+                pass
 
-            if result.returncode == 0:
+            # Success = sentinel file written by the script (stdout is empty in GUI mode)
+            if os.path.exists(sentinel_path):
+                os.unlink(sentinel_path)
                 return {
                     "status": "success",
-                    "message": result.stdout,
+                    "message": "Command executed successfully",
                     "command": command,
                 }
             else:
-                return {"status": "error", "message": result.stderr, "command": command}
+                # Collect any error output for diagnostics
+                err_msg = (
+                    result.stderr
+                    or result.stdout
+                    or "Script failed — no output captured"
+                ).strip()
+                return {"status": "error", "message": err_msg, "command": command}
 
         except subprocess.TimeoutExpired:
             return {"status": "error", "message": "Command execution timed out"}
@@ -197,11 +308,15 @@ except Exception as e:
     def execute_script_file(self, script_path):
         """Execute a FreeCAD script file"""
         try:
+            display = _ensure_xvfb()
+            env = {**os.environ, "DISPLAY": display}
+            # Console mode: -c runs the script headlessly without opening a GUI window
             result = subprocess.run(
-                [self.freecad_executable, script_path],
+                [self.freecad_executable, "-c", script_path],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=120,
+                env=env,
             )
 
             if result.returncode == 0:
@@ -395,7 +510,9 @@ else:
                 temp_file.write(script_content)
                 temp_script_path = temp_file.name
 
-            # Launch FreeCAD GUI with the script
+            # Launch FreeCAD GUI with the script as a positional arg.
+            # GUI mode (no -c) so the window stays open for the user to inspect.
+            # Xvfb is already running via _ensure_xvfb() called above.
             result = subprocess.Popen(
                 [self.freecad_gui_executable, temp_script_path],
                 stdout=subprocess.PIPE,
@@ -403,13 +520,14 @@ else:
                 text=True,
             )
 
-            # Give FreeCAD time to start
-            time.sleep(2)
+            # Give FreeCAD enough time to start and fully read+execute the script
+            # before we remove the temp file (Popen is non-blocking, so we must wait)
+            time.sleep(8)
 
-            # Clean up the temporary script
+            # Clean up the temporary script only after FreeCAD has had time to read it
             try:
                 os.unlink(temp_script_path)
-            except:
+            except OSError:
                 pass
 
             print("✅ FreeCAD GUI launched successfully")

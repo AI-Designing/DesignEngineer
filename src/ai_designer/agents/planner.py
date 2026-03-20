@@ -178,7 +178,7 @@ Decompose the following design prompt into a task graph:"""
         # Get LLM response with retries
         for attempt in range(1, self.max_retries + 1):
             try:
-                response = await self.llm_provider.generate(llm_request)
+                response = await self.llm_provider.agenerate(llm_request)
 
                 # Parse JSON response
                 task_data = self._parse_llm_response(response.content)
@@ -387,7 +387,7 @@ maintaining the original design intent."""
         # Reuse the main planning logic
         for attempt in range(1, self.max_retries + 1):
             try:
-                response = await self.llm_provider.generate(llm_request)
+                response = await self.llm_provider.agenerate(llm_request)
                 task_data = self._parse_llm_response(response.content)
                 task_graph = self._build_task_graph(
                     task_data, design_request.request_id

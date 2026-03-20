@@ -490,10 +490,10 @@ async def _process_design_pipeline(
         _designs[str_request_id] = result_state
 
         logger.info(
-            f"Design {str_request_id} completed via pipeline",
-            status=result_state.status.value,
-            iterations=result_state.current_iteration,
-            is_valid=result_state.is_valid,
+            f"Design {str_request_id} completed via pipeline "
+            f"[status={result_state.status.value}, "
+            f"iterations={result_state.current_iteration}, "
+            f"is_valid={result_state.is_valid}]"
         )
 
     except Exception as e:

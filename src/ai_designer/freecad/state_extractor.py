@@ -77,7 +77,7 @@ class StateExtractor:
 
             try:
                 result = subprocess.run(
-                    [self.freecad_cmd, script_path],
+                    [self.freecad_cmd, "-c", script_path],
                     capture_output=True,
                     text=True,
                     timeout=timeout,
@@ -129,13 +129,13 @@ Document: {doc_path}
 
 import json
 import sys
-
+import os
 try:
     import FreeCAD as App
     import Part
 except ImportError as e:
     print(json.dumps({{"success": False, "error": f"Failed to import FreeCAD: {{e}}"}}))
-    sys.exit(1)
+    os._exit(1)
 
 try:
     # Open document
@@ -246,7 +246,7 @@ except Exception as e:
         "error": f"State extraction failed: {{e}}",
         "traceback": traceback.format_exc(),
     }}))
-    sys.exit(1)
+    os._exit(1)
 '''
 
     def _parse_extraction_output(self, stdout: str, stderr: str) -> Dict[str, Any]:

@@ -353,15 +353,12 @@ except Exception as e:
 
         try:
             # Determine FreeCAD command
-            if self.freecad_path and self.freecad_path.endswith(".AppImage"):
-                # Execute AppImage with python script
-                cmd = [self.freecad_path, "--console", "--run", temp_path]
-            elif self.freecad_path:
-                # Use provided FreeCAD path
+            if self.freecad_path:
+                # AppImage, AppRun, or regular binary — all support -c (console mode)
                 cmd = [self.freecad_path, "-c", temp_path]
             else:
                 # Try system freecadcmd
-                cmd = ["freecadcmd", temp_path]
+                cmd = ["freecadcmd", "-c", temp_path]
 
             # Execute with timeout
             process = subprocess.run(

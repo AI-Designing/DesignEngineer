@@ -5,6 +5,7 @@ and using Redis state for intelligent decision making.
 """
 
 import json
+import os
 import re
 import time
 from datetime import datetime
@@ -58,17 +59,14 @@ class StateAwareCommandProcessor:
 
             self.workflow_orchestrator = WorkflowOrchestrator(
                 state_processor=self,
-                pattern_engine=None,  # Will be initialized when pattern engine is implemented
-                advanced_features=None,  # Will be initialized when advanced features are implemented
+                pattern_engine=None,
+                advanced_features=None,
             )
             self.multi_step_workflows_available = True
-        except ImportError:
+        except ImportError as e:
             self.workflow_orchestrator = None
             self.multi_step_workflows_available = False
-            print("✅ Face selection engine initialized")
-        except ImportError as e:
-            print(f"⚠️ Face selection engine not available: {e}")
-            self.face_selection_available = False
+            print(f"⚠️ Workflow orchestrator not available: {e}")
 
     def process_complex_command(self, nl_command: str) -> Dict[str, Any]:
         """
@@ -99,35 +97,39 @@ class StateAwareCommandProcessor:
 
             # Step 3: Use appropriate processing strategy
             if workflow_analysis.get("is_complex_workflow", False):
-                return self._process_complex_workflow(
+                result = self._process_complex_workflow(
                     nl_command, current_state, workflow_analysis
                 )
             elif workflow_analysis.get("requires_sketch_then_operate", False):
-                return self._process_sketch_then_operate_workflow(
+                result = self._process_sketch_then_operate_workflow(
                     nl_command, current_state, workflow_analysis
                 )
             elif workflow_analysis.get("requires_face_selection", False):
-                return self._process_face_selection_workflow(
+                result = self._process_face_selection_workflow(
                     nl_command, current_state, workflow_analysis
                 )
             elif workflow_analysis.get("is_multi_step", False):
-                return self._process_multi_step_workflow(
+                result = self._process_multi_step_workflow(
                     nl_command, current_state, workflow_analysis
                 )
             else:
-                return self._process_standard_workflow(nl_command, current_state)
+                result = self._process_standard_workflow(nl_command, current_state)
+
+            # Step 4: Auto-save after complete workflow execution
+            if result.get("status") in ("success", "partial", "warning"):
+                saved_path = self._save_workflow_result()
+                if saved_path:
+                    result["saved_path"] = saved_path
+
+            return result
 
         except Exception as e:
+            print(f"❌ Error in complex command processing: {e}")
             return {
                 "status": "error",
                 "error": str(e),
                 "suggestion": "Check FreeCAD connection and try a simpler command",
             }
-            return self._execute_step_sequence(task_breakdown, nl_command)
-
-        except Exception as e:
-            print(f"❌ Error in complex command processing: {e}")
-            return {"status": "error", "message": str(e)}
 
     def _get_current_state(self) -> Dict[str, Any]:
         """Get the current FreeCAD document state and any cached state from Redis"""
@@ -176,6 +178,42 @@ class StateAwareCommandProcessor:
     ) -> float:
         """Calculate complexity score (0-1). Delegates to workflow_templates."""
         return calculate_complexity_score(nl_command, current_state)
+
+    def _compute_workflow_save_path(self, step_name: str = "step") -> str:
+        """Compute a unique timestamped save path inside outputs/ for a workflow step."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"workflow_{self.session_id}_{step_name}_{timestamp}.FCStd"
+        outputs_dir = os.path.join(os.getcwd(), "outputs")
+        os.makedirs(outputs_dir, exist_ok=True)
+        return os.path.join(outputs_dir, filename)
+
+    def _save_workflow_result(self) -> Optional[str]:
+        """
+        Save the FreeCAD document after a complete workflow execution.
+
+        Works reliably in direct (in-process) FreeCAD mode where the document
+        accumulates state across steps.  In subprocess mode each step runs in
+        an isolated process, so this call saves whatever the in-memory client
+        currently holds (may be empty); per-step saves via save_path are the
+        meaningful checkpoints in that mode.
+
+        Returns the saved path on success, or None on failure.
+        """
+        try:
+            save_path = self._compute_workflow_save_path("final")
+            result = self.api_client.save_document(save_path)
+            if result.get("status") == "success":
+                actual_path = result.get("saved_path", save_path)
+                print(f"💾 Workflow result auto-saved to: {actual_path}")
+                return actual_path
+            else:
+                print(
+                    f"⚠️ Could not auto-save workflow result: "
+                    f"{result.get('message', 'unknown error')}"
+                )
+        except Exception as e:
+            print(f"⚠️ Could not auto-save workflow result: {e}")
+        return None
 
     def _process_sketch_then_operate_workflow(
         self,
@@ -595,7 +633,10 @@ print(f"SUCCESS: Hole created - radius {radius}mm, depth {depth}mm")
 """
 
         try:
-            result = self.api_client.execute_command(hole_script)
+            result = self.api_client.execute_command(
+                hole_script,
+                save_path=self._compute_workflow_save_path("hole"),
+            )
             return {
                 "status": "success",
                 "step": "hole_execution",
@@ -759,11 +800,74 @@ print(f"SUCCESS: Hole created - radius {radius}mm, depth {depth}mm")
                 "suggestion": "Try using simpler commands",
             }
 
+    def _execute_as_single_script(
+        self,
+        task_breakdown: Dict[str, Any],
+        nl_command: str,
+    ) -> Dict[str, Any]:
+        """
+        Generate raw FreeCAD code for EVERY step in the breakdown and combine
+        them into ONE Python script executed in a single FreeCAD subprocess.
+
+        This solves two problems at once:
+        1. No state loss — a single subprocess means a single document; objects
+           created in step 1 are visible to step 2 without loading from disk.
+        2. No recursive loop — we call command_executor.execute(raw_code) which
+           bypasses _is_complex_command / execute_natural_language entirely.
+        """
+        script_parts: list = []
+        skipped = 0
+
+        for step in task_breakdown.get("steps", []):
+            code = self._generate_step_command(step, {})
+            if code:
+                header = f"# Step {step.get('step_number','?')}: {step.get('description','')}"
+                script_parts.append(f"{header}\n{code}")
+            else:
+                skipped += 1
+                print(
+                    f"⚠️  Could not generate code for step: {step.get('description','?')}"
+                )
+
+        if not script_parts:
+            return {
+                "status": "error",
+                "message": "No executable FreeCAD steps could be generated",
+            }
+
+        combined_script = "\n\n".join(script_parts)
+        total = len(task_breakdown.get("steps", []))
+        print(
+            f"📝 Running {len(script_parts)}/{total} steps as a single FreeCAD script..."
+        )
+
+        if self.command_executor:
+            result = self.command_executor.execute(combined_script)
+        else:
+            result = {"status": "error", "message": "No command executor available"}
+
+        step_ok = result and (
+            result.get("success", False) or result.get("status") == "success"
+        )
+
+        return {
+            "status": "success" if step_ok else "error",
+            "workflow": "standard_decomposition",
+            "total_steps": total,
+            "executed_steps": len(script_parts),
+            "skipped_steps": skipped,
+            "execution_result": result,
+            "analysis": task_breakdown.get("analysis", ""),
+        }
+
     def _process_standard_workflow(
         self, nl_command: str, current_state: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Process commands using standard decomposition workflow"""
-        # Use existing decomposition logic for non-sketch-based commands
+        """Process commands using standard decomposition workflow.
+
+        All generated steps are combined into ONE FreeCAD subprocess call so
+        document state (objects already created) is preserved across steps.
+        """
         task_breakdown = self._decompose_task(nl_command, current_state)
 
         if not task_breakdown or "error" in task_breakdown:
@@ -771,10 +875,9 @@ print(f"SUCCESS: Hole created - radius {radius}mm, depth {depth}mm")
 
         print(f"📋 Task broken down into {len(task_breakdown['steps'])} steps")
 
-        # Execute each step with state updates
-        return self._execute_steps_with_state_updates(
-            task_breakdown["steps"], current_state
-        )
+        # Combine all steps into ONE subprocess call — preserves document state
+        # and avoids recursive complex-command detection.
+        return self._execute_as_single_script(task_breakdown, nl_command)
 
     def _preflight_state_check(
         self, current_state: Dict[str, Any], workflow_analysis: Dict[str, Any]
@@ -824,7 +927,10 @@ print("SUCCESS: Active Body ready")
 """
 
         try:
-            result = self.api_client.execute_command(body_creation_script)
+            result = self.api_client.execute_command(
+                body_creation_script,
+                save_path=self._compute_workflow_save_path("body"),
+            )
             return {
                 "status": "success",
                 "operation": "ensure_active_body",
@@ -869,7 +975,10 @@ print("SUCCESS: Active Body ready")
         """Create a parametric circle sketch. Delegates script building to geometry_helpers."""
         script = build_circle_sketch_script(dimensions, plane)
         try:
-            result = self.api_client.execute_command(script)
+            result = self.api_client.execute_command(
+                script,
+                save_path=self._compute_workflow_save_path("circle_sketch"),
+            )
             return {
                 "status": "success",
                 "operation": "create_circle_sketch",
@@ -889,7 +998,10 @@ print("SUCCESS: Active Body ready")
         """Create a parametric rectangle sketch. Delegates script building to geometry_helpers."""
         script = build_rectangle_sketch_script(dimensions, plane)
         try:
-            result = self.api_client.execute_command(script)
+            result = self.api_client.execute_command(
+                script,
+                save_path=self._compute_workflow_save_path("rect_sketch"),
+            )
             return {
                 "status": "success",
                 "operation": "create_rectangle_sketch",
@@ -960,7 +1072,10 @@ print(f"SUCCESS: Pad created with height {{height}}mm")
 """
 
         try:
-            result = self.api_client.execute_command(pad_script)
+            result = self.api_client.execute_command(
+                pad_script,
+                save_path=self._compute_workflow_save_path("pad"),
+            )
             return {
                 "status": "success",
                 "operation": "pad",
@@ -1013,7 +1128,10 @@ print(f"SUCCESS: Pocket created with depth {{depth}}mm")
 """
 
         try:
-            result = self.api_client.execute_command(pocket_script)
+            result = self.api_client.execute_command(
+                pocket_script,
+                save_path=self._compute_workflow_save_path("pocket"),
+            )
             return {
                 "status": "success",
                 "operation": "pocket",
@@ -1121,10 +1239,7 @@ Example for "create a cone and cylinder together":
 """
 
             # Use LLM to decompose the task
-            response = self.llm_client.llm.invoke(decomposition_prompt)
-            response_text = (
-                response.content if hasattr(response, "content") else str(response)
-            )
+            response_text = self.llm_client.generate_response(decomposition_prompt)
 
             print(f"🤖 LLM decomposition response: {response_text[:200]}...")
 
@@ -1468,8 +1583,10 @@ doc.recompute()"""
         self, steps: list, initial_state: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Execute a list of steps with state updates between each step
-        This is the original workflow execution method
+        Execute a list of steps by generating raw FreeCAD code per step and
+        calling command_executor.execute() directly — never execute_natural_language()
+        — to avoid the recursive loop where step descriptions containing
+        relationship words ("next to", "and") re-trigger complex command routing.
         """
         execution_results = []
         current_state = initial_state
@@ -1483,34 +1600,41 @@ doc.recompute()"""
             )
 
             try:
-                # Execute the step
+                # Generate raw FreeCAD code for the step — never call
+                # execute_natural_language() here as that would re-detect
+                # step descriptions as "complex" and recurse infinitely.
                 if self.command_executor:
-                    # Try using the command executor
-                    result = self.command_executor.execute_natural_language(
-                        step.get("description", "")
-                    )
+                    freecad_code = self._generate_step_command(step, current_state)
+                    if freecad_code:
+                        result = self.command_executor.execute(freecad_code)
+                    else:
+                        # Last resort: LLM generation without NL routing
+                        result = self._execute_step_with_llm(step, current_state)
                 else:
-                    # Fallback to direct LLM generation
                     result = self._execute_step_with_llm(step, current_state)
 
-                if result and result.get("success", False):
+                # Normalise: command_executor.execute() uses {"status":"success"},
+                # while state_aware paths use {"success": True}.
+                step_ok = result and (
+                    result.get("success", False) or result.get("status") == "success"
+                )
+                if step_ok:
                     successful_operations += 1
                     print(f"✅ Step {i} completed successfully")
                 else:
-                    print(
-                        f"⚠️ Step {i} completed with issues: {result.get('error', 'Unknown error')}"
+                    err = (
+                        result.get("error") or result.get("message", "Unknown error")
+                        if result
+                        else "No result"
                     )
+                    print(f"⚠️ Step {i} completed with issues: {err}")
 
                 execution_results.append(
                     {
                         "step": i,
                         "description": step.get("description", ""),
                         "result": result,
-                        "status": (
-                            "success"
-                            if result and result.get("success", False)
-                            else "error"
-                        ),
+                        "status": "success" if step_ok else "error",
                     }
                 )
 
@@ -1557,17 +1681,21 @@ doc.recompute()"""
             description = step.get("description", "Unknown task")
 
             # Generate FreeCAD code using LLM
-            llm_result = self.llm_client.generate_command(
-                prompt=f"Create FreeCAD Python code to: {description}",
-                current_state=current_state,
+            # LLMClient.generate_command(nl_command, state) returns a plain string
+            generated_code = self.llm_client.generate_command(
+                f"Create FreeCAD Python code to: {description}",
+                current_state,
             )
 
-            if llm_result and "command" in llm_result:
+            if generated_code:
                 # Execute the generated command
-                api_result = self.api_client.execute_command(llm_result["command"])
+                api_result = self.api_client.execute_command(
+                    generated_code,
+                    save_path=self._compute_workflow_save_path("llm_step"),
+                )
                 return {
                     "success": True,
-                    "llm_result": llm_result,
+                    "llm_result": {"command": generated_code},
                     "api_result": api_result,
                     "step_description": description,
                 }

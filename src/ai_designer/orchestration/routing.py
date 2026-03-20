@@ -59,7 +59,10 @@ def route_after_validation(state: PipelineState) -> RoutingDecision:
 
     score = validation.overall_score
 
-    # Check iteration limit first
+    # Increment iteration counter before checking the limit
+    state.increment_iteration()
+
+    # Check iteration limit
     if state.has_exceeded_iterations():
         logger.warning(
             "Maximum iterations exceeded",

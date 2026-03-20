@@ -427,7 +427,7 @@ Review the following FreeCAD design:"""
         )
 
         try:
-            response = await self.llm_provider.generate(llm_request)
+            response = await self.llm_provider.agenerate(llm_request)
             review_data = self._parse_review_response(response.content)
 
             return LLMReviewResult(

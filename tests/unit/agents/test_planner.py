@@ -125,7 +125,7 @@ class TestPlannerAgentPlanning:
         self, planner, mock_provider, design_request, valid_llm_response
     ):
         """Test successful task graph generation."""
-        mock_provider.generate = AsyncMock(return_value=valid_llm_response)
+        mock_provider.agenerate = AsyncMock(return_value=valid_llm_response)
 
         task_graph = await planner.plan(design_request)
 
@@ -152,8 +152,8 @@ class TestPlannerAgentPlanning:
         assert "task_3" not in ready_task_ids  # Has dependencies
 
         # Verify LLM was called
-        mock_provider.generate.assert_called_once()
-        call_args = mock_provider.generate.call_args[0][0]
+        mock_provider.agenerate.assert_called_once()
+        call_args = mock_provider.agenerate.call_args[0][0]
         assert call_args.temperature == 0.3
         assert len(call_args.messages) == 2
 
@@ -162,11 +162,11 @@ class TestPlannerAgentPlanning:
         self, planner, mock_provider, design_request, valid_llm_response
     ):
         """Test planning with custom temperature."""
-        mock_provider.generate = AsyncMock(return_value=valid_llm_response)
+        mock_provider.agenerate = AsyncMock(return_value=valid_llm_response)
 
         await planner.plan(design_request, temperature=0.8)
 
-        call_args = mock_provider.generate.call_args[0][0]
+        call_args = mock_provider.agenerate.call_args[0][0]
         assert call_args.temperature == 0.8
 
     @pytest.mark.asyncio
@@ -195,7 +195,7 @@ class TestPlannerAgentPlanning:
             finish_reason="stop",
         )
 
-        mock_provider.generate = AsyncMock(return_value=markdown_response)
+        mock_provider.agenerate = AsyncMock(return_value=markdown_response)
 
         task_graph = await planner.plan(design_request)
 
@@ -213,13 +213,13 @@ class TestPlannerAgentPlanning:
             finish_reason="stop",
         )
 
-        mock_provider.generate = AsyncMock(return_value=invalid_response)
+        mock_provider.agenerate = AsyncMock(return_value=invalid_response)
 
         with pytest.raises(RuntimeError, match="Failed to generate valid task graph"):
             await planner.plan(design_request)
 
         # Should retry max_retries times
-        assert mock_provider.generate.call_count == 3
+        assert mock_provider.agenerate.call_count == 3
 
     @pytest.mark.asyncio
     async def test_plan_missing_tasks_field(
@@ -234,7 +234,7 @@ class TestPlannerAgentPlanning:
             finish_reason="stop",
         )
 
-        mock_provider.generate = AsyncMock(return_value=invalid_response)
+        mock_provider.agenerate = AsyncMock(return_value=invalid_response)
 
         with pytest.raises(RuntimeError, match="Failed to generate valid task graph"):
             await planner.plan(design_request)
@@ -271,7 +271,7 @@ class TestPlannerAgentPlanning:
             finish_reason="stop",
         )
 
-        mock_provider.generate = AsyncMock(return_value=cyclic_llm_response)
+        mock_provider.agenerate = AsyncMock(return_value=cyclic_llm_response)
 
         with pytest.raises(RuntimeError, match="Failed to generate valid task graph"):
             await planner.plan(design_request)
@@ -340,7 +340,7 @@ class TestPlannerAgentReplanning:
             finish_reason="stop",
         )
 
-        mock_provider.generate = AsyncMock(return_value=llm_response)
+        mock_provider.agenerate = AsyncMock(return_value=llm_response)
 
         feedback = "Box dimensions are too small, increase to 15mm"
         new_graph = await planner.replan(design_request, feedback, previous_graph)
@@ -349,8 +349,8 @@ class TestPlannerAgentReplanning:
         assert new_graph.nodes["task_1"].parameters["length"] == 15.0
 
         # Verify LLM was called with feedback
-        mock_provider.generate.assert_called_once()
-        call_args = mock_provider.generate.call_args[0][0]
+        mock_provider.agenerate.assert_called_once()
+        call_args = mock_provider.agenerate.call_args[0][0]
         assert any("VALIDATION FEEDBACK" in msg.content for msg in call_args.messages)
 
     @pytest.mark.asyncio
@@ -366,14 +366,14 @@ class TestPlannerAgentReplanning:
             finish_reason="stop",
         )
 
-        mock_provider.generate = AsyncMock(return_value=invalid_response)
+        mock_provider.agenerate = AsyncMock(return_value=invalid_response)
 
         feedback = "Needs improvement"
 
         with pytest.raises(RuntimeError, match="Failed to replan"):
             await planner.replan(design_request, feedback, previous_graph)
 
-        assert mock_provider.generate.call_count == 3
+        assert mock_provider.agenerate.call_count == 3
 
 
 class TestPlannerAgentHelpers:

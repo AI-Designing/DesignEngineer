@@ -9,6 +9,26 @@ import os
 import sys
 from typing import Optional
 
+# Load .env files so API keys (OPPER_API_KEY etc.) are available before any imports
+try:
+    from dotenv import load_dotenv
+
+    _here = os.path.dirname(os.path.abspath(__file__))
+    # _here = src/ai_designer/ → ../../ = project root (freecad-llm-automation/)
+    _project_root = os.path.abspath(os.path.join(_here, "..", ".."))
+    load_dotenv(
+        os.path.join(_project_root, ".env"), override=False
+    )  # root .env (OPPER_API_KEY, infra)
+    load_dotenv(
+        os.path.join(_project_root, "src", ".env"), override=False
+    )  # src/.env (legacy keys)
+except ImportError:
+    pass  # python-dotenv not installed; fall back to env vars already set
+
+# Read Redis coordinates from env so Docker service name 'redis' is picked up automatically
+_REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+_REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+
 # Ensure the package is importable
 if __name__ == "__main__":
     # Add the parent directory to the path to allow imports
@@ -63,14 +83,14 @@ def parse_arguments():
     )
     parser.add_argument(
         "--redis-host",
-        default="localhost",
-        help="Redis host for enhanced mode (default: localhost)",
+        default=_REDIS_HOST,
+        help=f"Redis host for enhanced mode (default: {_REDIS_HOST})",
     )
     parser.add_argument(
         "--redis-port",
         type=int,
-        default=6379,
-        help="Redis port for enhanced mode (default: 6379)",
+        default=_REDIS_PORT,
+        help=f"Redis port for enhanced mode (default: {_REDIS_PORT})",
     )
     parser.add_argument(
         "--websocket-port",

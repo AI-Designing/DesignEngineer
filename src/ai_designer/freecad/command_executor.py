@@ -52,6 +52,15 @@ class CommandExecutor:
         else:
             self.state_aware_processor = None
 
+    def _compute_save_path(self):
+        """Pre-compute the next auto-save path without touching the filesystem."""
+        self.save_counter += 1
+        timestamp = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"freecad_auto_save_{timestamp}_{self.save_counter:03d}.FCStd"
+        outputs_dir = os.path.join(os.getcwd(), "outputs")
+        os.makedirs(outputs_dir, exist_ok=True)
+        return os.path.join(outputs_dir, filename)
+
     def execute(self, command):
         """Execute a FreeCAD command"""
         if not self.api_client:
@@ -61,25 +70,32 @@ class CommandExecutor:
             # Add to history
             self.command_history.append(command)
 
-            # Execute the command
-            response = self.api_client.execute_command(command)
+            # Pre-compute save path so command + save run in ONE subprocess
+            save_path = self._compute_save_path() if self.auto_save else None
 
-            # Auto-save if command was successful and auto-save is enabled
+            # Execute the command (save_path embedded → same subprocess, no state loss)
+            response = self.api_client.execute_command(command, save_path=save_path)
+
+            # Read saved_path back from the response
             if self.auto_save and response.get("status") == "success":
-                save_result = self._auto_save_document()
+                save_result = response.get("saved_path", save_path)
                 if save_result:
                     print(f"\n💾 Document auto-saved to: {save_result}")
                     self.last_saved_path = save_result
 
                     # Use persistent GUI if available, otherwise fall back to auto-open GUI
                     if self.persistent_gui and self.persistent_gui.is_gui_running():
-                        # Use persistent GUI - just update the view, no new window
-                        print("🔄 Updating persistent GUI view...")
-                        view_updated = self.persistent_gui.update_gui_view()
+                        # Load the saved document into the persistent GUI window
+                        # so the new geometry is visible (update_gui_view only
+                        # recomputes an already-open—possibly empty—document).
+                        print("🔄 Opening saved document in persistent GUI...")
+                        view_updated = self.persistent_gui.open_document_in_gui(
+                            save_result
+                        )
                         if view_updated:
-                            print("✅ Persistent GUI updated with new objects")
+                            print("✅ Persistent GUI opened document with new objects")
                         else:
-                            print("⚠️  Persistent GUI view update failed")
+                            print("⚠️  Persistent GUI document open failed")
                     elif self.auto_open_gui:
                         # Fallback to opening new GUI (legacy behavior)
                         print("🖥️  Opening document in FreeCAD GUI...")
@@ -354,21 +370,15 @@ print("Cone created: {name}")
 
     def validate_command(self, command):
         """Validate if the command is safe to execute"""
+        # Block only truly dangerous operations; allow os, open, etc. because
+        # LLM-generated FreeCAD scripts legitimately use them for file I/O.
         dangerous_keywords = [
-            "import os",
             "import subprocess",
             "exec(",
             "eval(",
-            "__import__",
-            "open(",
-            "file(",
-            "input(",
-            "raw_input(",
+            "__import__(",
             "execfile(",
-            "reload(",
             "compile(",
-            "globals()",
-            "locals()",
         ]
 
         command_lower = command.lower()

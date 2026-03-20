@@ -60,7 +60,7 @@ class AgentConfigUpdate(BaseModel):
             "New fallback Opper model string used when the primary fails. "
             "Leave null to keep the current fallback."
         ),
-        examples=["google/gemini-2.0-flash"],
+        examples=["gcp/gemini-2.0-flash"],
     )
     temperature: Optional[float] = Field(
         default=None,

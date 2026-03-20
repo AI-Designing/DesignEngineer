@@ -136,9 +136,13 @@ def get_freecad_executor() -> FreeCADExecutor:
     global _freecad_executor
 
     if _freecad_executor is None:
+        import os
+
+        freecad_path = os.getenv("FREECAD_PATH")
         _freecad_executor = FreeCADExecutor(
             timeout=60,
             save_outputs=True,
+            freecad_path=freecad_path,
         )
         logger.info("Initialized FreeCADExecutor")
 

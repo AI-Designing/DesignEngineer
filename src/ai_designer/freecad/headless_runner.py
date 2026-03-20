@@ -104,6 +104,20 @@ class HeadlessRunner:
     def _detect_freecad_cmd(self) -> str:
         """Detect freecadcmd executable path."""
         try:
+            import os
+
+            # Check FREECAD_PATH environment variable first
+            env_path = os.getenv("FREECAD_PATH")
+            if env_path:
+                p = Path(env_path)
+                if p.exists():
+                    logger.info(f"Using FreeCAD from FREECAD_PATH: {p}")
+                    return str(p)
+                else:
+                    logger.warning(
+                        f"FREECAD_PATH={env_path} does not exist, continuing auto-detect"
+                    )
+
             resolver = FreeCADPathResolver()
 
             # Try common executable names
@@ -166,6 +180,7 @@ class HeadlessRunner:
         user_script: str,
         document_name: str,
         request_id: Optional[UUID] = None,
+        save_path: Optional[str] = None,
     ) -> str:
         """
         Create complete FreeCAD script with error handling and output markers.
@@ -174,12 +189,28 @@ class HeadlessRunner:
             user_script: User-provided FreeCAD Python code
             document_name: Name for the FreeCAD document
             request_id: Optional design request ID for tracking
+            save_path: Full path where the .FCStd file should be saved
 
         Returns:
             Complete FreeCAD script ready for execution
         """
         # Indent user script
         indented_script = "\n".join(f"    {line}" for line in user_script.split("\n"))
+
+        # Build optional save block so the document is persisted inside the subprocess
+        if save_path:
+            _save_block = f"""
+# Save document to disk before exiting
+try:
+    import os as _os
+    _os.makedirs(_os.path.dirname("{save_path}"), exist_ok=True)
+    doc.saveAs("{save_path}")
+    print(f"SAVED_TO: {save_path}")
+except Exception as _save_err:
+    print(f"SAVE_WARNING: could not save document: {{_save_err}}")
+"""
+        else:
+            _save_block = ""
 
         template = f'''#!/usr/bin/env python3
 """
@@ -190,6 +221,7 @@ Request ID: {request_id or "N/A"}
 """
 
 import sys
+import os
 import traceback
 
 # Import FreeCAD modules
@@ -201,7 +233,7 @@ try:
     import Draft
 except ImportError as e:
     print(f"ERROR: Failed to import FreeCAD modules: {{e}}")
-    sys.exit(1)
+    os._exit(1)
 
 # Create new document
 try:
@@ -209,7 +241,7 @@ try:
     print(f"DOCUMENT_CREATED: {document_name}")
 except Exception as e:
     print(f"ERROR: Failed to create document: {{e}}")
-    sys.exit(1)
+    os._exit(1)
 
 # Execute user script
 print("SCRIPT_START")
@@ -239,9 +271,9 @@ try:
 except Exception as e:
     print(f"ERROR: Script execution failed: {{e}}")
     traceback.print_exc()
-    sys.exit(1)
+    os._exit(1)
 
-# Save document (will be handled by runner)
+{_save_block}
 print("EXECUTION_COMPLETE")
 '''
         return template
@@ -399,8 +431,17 @@ print("EXECUTION_COMPLETE")
         """Execute single script attempt."""
         start_time = time.time()
 
-        # Create complete script
-        full_script = self._create_script_template(script, document_name, request_id)
+        # Pre-compute the FCStd save path so the script can write it to disk
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        base_name = f"{document_name}_{timestamp}"
+        if request_id:
+            base_name = f"{document_name}_{request_id}_{timestamp}"
+        pre_computed_save_path = str(self.outputs_dir / f"{base_name}.FCStd")
+
+        # Create complete script (now includes doc.saveAs inside the subprocess)
+        full_script = self._create_script_template(
+            script, document_name, request_id, save_path=pre_computed_save_path
+        )
 
         # Write to temporary file
         with tempfile.NamedTemporaryFile(
@@ -411,10 +452,20 @@ print("EXECUTION_COMPLETE")
 
         try:
             # Determine command based on FreeCAD type
-            if self.freecad_cmd.endswith(".AppImage"):
-                cmd = [self.freecad_cmd, "--console", "--run", script_path]
-            else:
-                cmd = [self.freecad_cmd, script_path]
+            import os as _os
+
+            env = _os.environ.copy()
+            env.setdefault("QT_QPA_PLATFORM", "offscreen")
+            env.setdefault("XDG_RUNTIME_DIR", "/tmp/xdg")
+            import pathlib as _pl
+
+            _pl.Path(env["XDG_RUNTIME_DIR"]).mkdir(parents=True, exist_ok=True)
+
+            # All FreeCAD variants (AppImage, AppRun, system binary) support the
+            # -c (console mode) flag.  The script is passed as a positional arg
+            # AFTER -c so FreeCAD executes it as Python rather than trying to
+            # open it as a CAD model file (which causes "Unknown file" errors).
+            cmd = [self.freecad_cmd, "-c", script_path]
 
             # Execute subprocess
             logger.debug(f"Running: {' '.join(cmd)}")
@@ -428,6 +479,7 @@ print("EXECUTION_COMPLETE")
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,
+                    env=env,
                 ),
             )
 
@@ -441,12 +493,19 @@ print("EXECUTION_COMPLETE")
             # Determine success
             success = process.returncode == 0 and recompute_ok and not errors
 
-            # Save document if successful
+            # Save metadata and resolve document path
             document_path = None
             if success and self.auto_export:
-                document_path = await self._save_document(
-                    document_name, request_id, user_prompt, created_objects
+                meta_base = await self._save_document(
+                    document_name,
+                    request_id,
+                    user_prompt,
+                    created_objects,
+                    fcstd_path=pre_computed_save_path,
                 )
+                # The .FCStd was written inside the subprocess; use the pre-computed path
+                fcstd = Path(pre_computed_save_path)
+                document_path = fcstd if fcstd.exists() else meta_base
 
             # Create result
             result = ExecutionResult(
@@ -459,6 +518,7 @@ print("EXECUTION_COMPLETE")
                 execution_time=execution_time,
                 exit_code=process.returncode,
                 created_objects=[obj.split("(")[0].strip() for obj in created_objects],
+                document_path=str(document_path) if document_path else None,
                 metadata={
                     "document_name": document_name,
                     "document_path": str(document_path) if document_path else None,
@@ -492,12 +552,15 @@ print("EXECUTION_COMPLETE")
         request_id: Optional[UUID],
         user_prompt: Optional[str],
         created_objects: List[str],
+        fcstd_path: Optional[str] = None,
     ) -> Optional[Path]:
         """
-        Save FreeCAD document and metadata.
+        Save FreeCAD document metadata.  The actual .FCStd is already written to
+        *fcstd_path* inside the subprocess; this method just persists the JSON
+        sidecar so callers can still locate all artefacts.
 
         Returns:
-            Path to saved document or None if save failed
+            Path to saved document (.FCStd) or metadata base path if not available.
         """
         try:
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -513,6 +576,7 @@ print("EXECUTION_COMPLETE")
                 "request_id": str(request_id) if request_id else None,
                 "user_prompt": user_prompt,
                 "created_objects": created_objects,
+                "fcstd_path": fcstd_path,
                 "freecad_version": self.freecad_version,
                 "export_formats": self.export_formats,
             }
@@ -523,8 +587,9 @@ print("EXECUTION_COMPLETE")
 
             logger.info(f"Saved metadata: {metadata_path}")
 
-            # Note: Actual document saving will be handled by export methods
-            # Return the base path for exports
+            # Return the FCStd path if provided, otherwise the base path
+            if fcstd_path:
+                return Path(fcstd_path)
             return self.outputs_dir / base_name
 
         except Exception as e:
@@ -555,6 +620,7 @@ print("EXECUTION_COMPLETE")
 
         export_script = f"""
 import sys
+import os
 try:
     import FreeCAD as App
     import Import
@@ -571,11 +637,11 @@ try:
     print(f"EXPORT_SUCCESS: {output_path}")
 
     App.closeDocument(doc.Name)
-    sys.exit(0)
+    os._exit(0)
 
 except Exception as e:
     print(f"EXPORT_ERROR: {{e}}", file=sys.stderr)
-    sys.exit(1)
+    os._exit(1)
 """
 
         try:
@@ -587,7 +653,7 @@ except Exception as e:
 
             try:
                 result = subprocess.run(
-                    [self.freecad_cmd, script_path],
+                    [self.freecad_cmd, "-c", script_path],
                     capture_output=True,
                     text=True,
                     timeout=timeout,
@@ -638,6 +704,7 @@ except Exception as e:
 
         export_script = f"""
 import sys
+import os
 try:
     import FreeCAD as App
     import Mesh
@@ -654,7 +721,7 @@ try:
 
     if not objects:
         print("EXPORT_ERROR: No visible objects with shapes found", file=sys.stderr)
-        sys.exit(1)
+        os._exit(1)
 
     # Create mesh from shapes
     meshes = []
@@ -682,13 +749,13 @@ try:
     print(f"EXPORT_SUCCESS: {output_path}")
 
     App.closeDocument(doc.Name)
-    sys.exit(0)
+    os._exit(0)
 
 except Exception as e:
     import traceback
     print(f"EXPORT_ERROR: {{e}}", file=sys.stderr)
     print(traceback.format_exc(), file=sys.stderr)
-    sys.exit(1)
+    os._exit(1)
 """
 
         try:
@@ -700,7 +767,7 @@ except Exception as e:
 
             try:
                 result = subprocess.run(
-                    [self.freecad_cmd, script_path],
+                    [self.freecad_cmd, "-c", script_path],
                     capture_output=True,
                     text=True,
                     timeout=timeout,

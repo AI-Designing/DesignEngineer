@@ -22,12 +22,12 @@ from typing import Optional
 AGENT_MODEL_CONFIG: dict = {
     "planner": {
         "primary": "anthropic/claude-3-5-sonnet-20241022",
-        "fallback": "google/gemini-pro",
+        "fallback": "gcp/gemini-2.0-flash",
         "temperature": 0.3,
         "max_tokens": 4096,
     },
     "generator": {
-        "primary": "google/gemini-2.0-flash",
+        "primary": "gcp/gemini-2.0-flash",
         "fallback": "openai/gpt-4o",
         "temperature": 0.1,
         "max_tokens": 8192,
@@ -40,7 +40,7 @@ AGENT_MODEL_CONFIG: dict = {
     },
     "orchestrator": {
         "primary": "anthropic/claude-3-5-sonnet-20241022",
-        "fallback": "google/gemini-pro",
+        "fallback": "gcp/gemini-2.0-flash",
         "temperature": 0.4,
         "max_tokens": 2048,
     },

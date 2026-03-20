@@ -12,7 +12,7 @@ from ai_designer.core.llm_provider import UnifiedLLMProvider
 
 @dataclass
 class OnlineCodeGenConfig:
-    model: str = "google/gemini-2.0-flash"
+    model: str = "gcp/gemini-2.0-flash"
     fallback_model: str = "openai/gpt-4o"
     temperature: float = 0.1
     max_tokens: int = 8192
@@ -28,10 +28,10 @@ class OnlineCodeGenClient:
             DeprecationWarning,
             stacklevel=2,
         )
-        cfg = config or OnlineCodeGenConfig()
+        self.config = config or OnlineCodeGenConfig()
         self._provider = UnifiedLLMProvider(
-            default_model=cfg.model,
-            fallback_models=[cfg.fallback_model],
+            default_model=self.config.model,
+            fallback_models=[self.config.fallback_model],
             agent_name="legacy_codegen_client",
         )
 

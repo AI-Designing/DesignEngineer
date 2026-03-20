@@ -192,7 +192,7 @@ doc.recompute()
         llm_review_response,
     ):
         """Test validation of a successful design."""
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             return_value=LLMResponse(
                 content=json.dumps(llm_review_response),
                 model="gpt-4o",
@@ -243,7 +243,7 @@ doc.recompute()
             "code_issues": ["Poor variable names"],
         }
 
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             return_value=LLMResponse(
                 content=json.dumps(poor_review), model="gpt-4o", provider="openai"
             )
@@ -273,7 +273,7 @@ doc.recompute()
         """Test validation with execution error."""
         failed_execution = {"error": "RuntimeError: Invalid object reference"}
 
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             return_value=LLMResponse(
                 content=json.dumps(llm_review_response),
                 model="gpt-4o",
@@ -301,7 +301,7 @@ doc.recompute()
         llm_review_response,
     ):
         """Test validation without execution results."""
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             return_value=LLMResponse(
                 content=json.dumps(llm_review_response),
                 model="gpt-4o",

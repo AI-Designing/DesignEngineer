@@ -21,7 +21,8 @@ class PersistentFreeCADGUI:
     """
 
     def __init__(self, websocket_manager=None):
-        self.freecad_gui_executable = "freecad"
+        self.freecad_gui_executable = os.getenv("FREECAD_PATH", "freecad")
+        self._module_dir = None
         self.gui_process = None
         self.gui_script_path = None
         self.websocket_manager = websocket_manager
@@ -127,6 +128,148 @@ class PersistentFreeCADGUI:
             port = s.getsockname()[1]
         return port
 
+    def _get_freecad_user_dir(self) -> str:
+        """Return the FreeCAD user config directory (where Mod/ lives)."""
+        for candidate in [
+            os.path.expanduser("~/.local/share/FreeCAD"),
+            os.path.expanduser("~/.FreeCAD"),
+        ]:
+            if os.path.isdir(candidate):
+                return candidate
+        return os.path.expanduser("~/.local/share/FreeCAD")
+
+    def _install_freecad_module(self) -> None:
+        """Install the AIDesignerBridge InitGui.py into FreeCAD's Mod directory.
+
+        FreeCAD automatically loads InitGui.py from every directory under
+        <UserAppDataDir>/Mod/ when the GUI starts.  This avoids passing a .py
+        file as a positional argument to the AppImage (which causes the
+        "Unknown file" error).
+
+        The bridge opens a TCP socket on self.communication_port and handles
+        four command types: execute_script, update_view, open_document, refresh.
+        It uses direct exec() — no external ai_designer imports needed.
+        """
+        user_dir = self._get_freecad_user_dir()
+        mod_dir = os.path.join(user_dir, "Mod", "AIDesignerBridge")
+        os.makedirs(mod_dir, exist_ok=True)
+        init_path = os.path.join(mod_dir, "InitGui.py")
+        port = self.communication_port
+
+        # Use __PORT__ as a safe placeholder so we never fight with .format()
+        # on the f-string-like content of the generated script.
+        bridge_template = (
+            "# AIDesignerBridge — auto-loaded by FreeCAD GUI on startup\n"
+            "import socket, json, threading, time, os\n"
+            "\n"
+            "_BRIDGE_PORT = __PORT__\n"
+            "\n"
+            "class _Bridge:\n"
+            "    def __init__(self):\n"
+            "        self.server_socket = None\n"
+            "        self.running = False\n"
+            "\n"
+            "    def start(self):\n"
+            "        try:\n"
+            "            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+            "            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n"
+            "            self.server_socket.settimeout(1.0)\n"
+            "            self.server_socket.bind(('127.0.0.1', _BRIDGE_PORT))\n"
+            "            self.server_socket.listen(5)\n"
+            "            self.running = True\n"
+            "            print('AIDesignerBridge: listening on port ' + str(_BRIDGE_PORT))\n"
+            "            threading.Thread(target=self._serve, daemon=True).start()\n"
+            "        except Exception as e:\n"
+            "            print('AIDesignerBridge: failed to start: ' + str(e))\n"
+            "\n"
+            "    def _serve(self):\n"
+            "        while self.running:\n"
+            "            try:\n"
+            "                sock, _ = self.server_socket.accept()\n"
+            "                threading.Thread(target=self._handle, args=(sock,), daemon=True).start()\n"
+            "            except socket.timeout:\n"
+            "                continue\n"
+            "            except Exception as e:\n"
+            "                if self.running:\n"
+            "                    print('AIDesignerBridge: accept error: ' + str(e))\n"
+            "                break\n"
+            "\n"
+            "    def _handle(self, sock):\n"
+            "        try:\n"
+            "            while True:\n"
+            "                data = sock.recv(65536)\n"
+            "                if not data:\n"
+            "                    break\n"
+            "                try:\n"
+            "                    msg = json.loads(data.decode('utf-8'))\n"
+            "                    self._dispatch(msg)\n"
+            "                    sock.send(json.dumps({'status': 'executed', 'timestamp': time.time()}).encode())\n"
+            "                except json.JSONDecodeError:\n"
+            "                    sock.send(json.dumps({'status': 'error', 'message': 'Invalid JSON'}).encode())\n"
+            "                except Exception as e:\n"
+            "                    sock.send(json.dumps({'status': 'error', 'message': str(e)}).encode())\n"
+            "        except Exception:\n"
+            "            pass\n"
+            "        finally:\n"
+            "            sock.close()\n"
+            "\n"
+            "    def _dispatch(self, msg):\n"
+            "        t = msg.get('type', '')\n"
+            "        if t == 'execute_script':\n"
+            "            self._execute_script(msg.get('script', ''))\n"
+            "        elif t == 'update_view':\n"
+            "            self._update_view()\n"
+            "        elif t == 'open_document':\n"
+            "            self._open_document(msg.get('path', ''))\n"
+            "        elif t == 'refresh':\n"
+            "            self._refresh()\n"
+            "\n"
+            "    def _execute_script(self, script):\n"
+            "        import FreeCAD, FreeCADGui\n"
+            "        doc = FreeCAD.ActiveDocument\n"
+            "        if not doc:\n"
+            "            doc = FreeCAD.newDocument('AutomationDoc')\n"
+            "            FreeCAD.setActiveDocument(doc.Name)\n"
+            "        ns = {'FreeCAD': FreeCAD, 'App': FreeCAD, 'Gui': FreeCADGui, 'doc': doc}\n"
+            "        exec(compile(script, '<bridge>', 'exec'), ns)\n"
+            "        doc.recompute()\n"
+            "        FreeCADGui.updateGui()\n"
+            "        for obj in doc.Objects:\n"
+            "            if hasattr(obj, 'ViewObject') and obj.ViewObject:\n"
+            "                obj.ViewObject.Visibility = True\n"
+            "        FreeCADGui.SendMsgToActiveView('ViewFit')\n"
+            "\n"
+            "    def _update_view(self):\n"
+            "        import FreeCAD, FreeCADGui\n"
+            "        doc = FreeCAD.ActiveDocument\n"
+            "        if doc:\n"
+            "            doc.recompute()\n"
+            "        FreeCADGui.updateGui()\n"
+            "        FreeCADGui.SendMsgToActiveView('ViewFit')\n"
+            "\n"
+            "    def _open_document(self, path):\n"
+            "        import FreeCAD, FreeCADGui\n"
+            "        if path and os.path.exists(path):\n"
+            "            FreeCAD.openDocument(path)\n"
+            "            FreeCADGui.updateGui()\n"
+            "            FreeCADGui.SendMsgToActiveView('ViewFit')\n"
+            "\n"
+            "    def _refresh(self):\n"
+            "        import FreeCAD, FreeCADGui\n"
+            "        doc = FreeCAD.ActiveDocument\n"
+            "        if doc:\n"
+            "            doc.recompute()\n"
+            "        FreeCADGui.updateGui()\n"
+            "\n"
+            "_bridge = _Bridge()\n"
+            "_bridge.start()\n"
+        )
+        bridge_content = bridge_template.replace("__PORT__", str(port))
+        with open(init_path, "w") as f:
+            f.write(bridge_content)
+        print(f"✅ AIDesignerBridge installed at: {init_path}")
+        self._module_dir = mod_dir
+
     def start_persistent_gui(self, initial_document_path: str = None) -> bool:
         """Start persistent FreeCAD GUI that stays open"""
         try:
@@ -143,41 +286,52 @@ class PersistentFreeCADGUI:
 
             print("🖥️  Starting new persistent FreeCAD GUI...")
 
-            # Create the persistent GUI script
-            self._create_persistent_script(initial_document_path)
+            # Install the AIDesignerBridge module into FreeCAD's Mod directory.
+            # FreeCAD auto-loads InitGui.py on GUI startup — no .py positional arg needed.
+            self._install_freecad_module()
 
-            # Start the GUI process
+            # Launch FreeCAD GUI without a .py positional argument.
+            # Passing a .py file as a positional arg to the AppImage causes
+            # "Unknown file: /tmp/xxx.py" errors.
             self.gui_process = subprocess.Popen(
-                [self.freecad_gui_executable, self.gui_script_path],
+                [self.freecad_gui_executable],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
             )
 
-            # Start socket server for communication
-            self._start_socket_server()
+            # Poll until the bridge socket accepts connections (up to 30 s)
+            print("⏳ Waiting for FreeCAD GUI and bridge to initialise...")
+            connected = False
+            for _ in range(60):
+                time.sleep(0.5)
+                if self.gui_process.poll() is not None:
+                    print("❌ FreeCAD GUI process exited unexpectedly")
+                    return False
+                if self._test_connection(self.communication_port):
+                    connected = True
+                    break
 
-            # Give FreeCAD time to start
-            time.sleep(3)
-
-            # Check if process is still running
-            if self.gui_process.poll() is None:
-                self.is_running = True
-                self._save_gui_info()  # Save info for future sessions
-                print(f"✅ Persistent FreeCAD GUI started (PID: {self.gui_process.pid})")
-                print(f"🔗 Communication port: {self.communication_port}")
-
-                if self.websocket_manager:
-                    self.websocket_manager.send_user_notification(
-                        f"Persistent FreeCAD GUI started on port {self.communication_port}",
-                        "success",
-                        self.session_id,
-                    )
-
-                return True
-            else:
-                print("❌ Failed to start persistent FreeCAD GUI")
+            if not connected:
+                print("❌ Timed out waiting for FreeCAD bridge to start")
                 return False
+
+            self.is_running = True
+            self._save_gui_info()
+            print(f"✅ Persistent FreeCAD GUI started (PID: {self.gui_process.pid})")
+            print(f"🔗 Communication port: {self.communication_port}")
+
+            if initial_document_path:
+                self.open_document_in_gui(initial_document_path)
+
+            if self.websocket_manager:
+                self.websocket_manager.send_user_notification(
+                    f"Persistent FreeCAD GUI started on port {self.communication_port}",
+                    "success",
+                    self.session_id,
+                )
+
+            return True
 
         except Exception as e:
             print(f"❌ Error starting persistent GUI: {e}")
@@ -443,23 +597,23 @@ class SimpleFreeCADSocketServer:
                 )
 
                 # Prepare FreeCAD environment
-                freecad_env = {
+                freecad_env = {{
                     'FreeCAD': FreeCAD,
                     'doc': doc,
                     'App': FreeCAD,
                     'Gui': FreeCADGui if 'FreeCADGui' in globals() else None
-                }
+                }}
 
                 # Execute validated script with sandbox
                 result = sandbox.execute_freecad_script(script, freecad_env)
 
                 if not result.success:
-                    raise ValueError(f"Script execution failed: {result.error}")
+                    raise ValueError(f"Script execution failed: {{result.error}}")
 
             except Exception as e:
                 import logging
-                logging.error(f"Script execution failed: {e}")
-                raise ValueError(f"Script error: {e}")
+                logging.error(f"Script execution failed: {{e}}")
+                raise ValueError(f"Script error: {{e}}")
             doc.recompute()
             FreeCADGui.updateGui()
 
@@ -556,8 +710,8 @@ server_started = socket_server.start_server()
 
 if server_started:
     print("✅ Persistent FreeCAD GUI ready for real-time updates")
-    print(f"🔗 Session ID: {SESSION_ID}")
-    print(f"📡 Socket server listening on port {COMMUNICATION_PORT}")
+    print(f"🔗 Session ID: {{SESSION_ID}}")
+    print(f"📡 Socket server listening on port {{COMMUNICATION_PORT}}")
     print("�🖥️  GUI will stay open and update automatically")
 else:
     print("❌ Failed to start socket server")

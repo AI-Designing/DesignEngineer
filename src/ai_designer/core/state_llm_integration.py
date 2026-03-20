@@ -246,6 +246,8 @@ class StateLLMIntegration:
                     )
             except Exception as e:
                 print(f"⚠️ Failed to get current state: {e}")
+        # Ensure current_state is always a dict, never None
+        current_state = current_state or {}
 
         # Get command history
         command_history = self._get_command_history(session_id)
@@ -398,7 +400,22 @@ Generate a safe, executable FreeCAD command that fulfills the user's request.
     ) -> LLMDecision:
         """Parse LLM JSON response into LLMDecision object"""
         try:
-            data = json.loads(response)
+            # Strip markdown code fences that LLMs commonly wrap JSON in
+            cleaned = response.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+            # Extract first JSON object if there's surrounding text
+            import re as _re
+
+            match = _re.search(r"\{.*\}", cleaned, _re.DOTALL)
+            if match:
+                cleaned = match.group()
+            data = json.loads(cleaned)
 
             return LLMDecision(
                 command=data.get("command", ""),
@@ -1082,7 +1099,20 @@ class EnhancedStateLLMIntegration(StateLLMIntegration):
         Parse enhanced LLM response into structured result
         """
         try:
-            data = json.loads(response)
+            import re as _re
+
+            cleaned = response.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+            match = _re.search(r"\{.*\}", cleaned, _re.DOTALL)
+            if match:
+                cleaned = match.group()
+            data = json.loads(cleaned)
             return EnhancedDecisionResult(**data)
 
         except Exception as e:

@@ -214,7 +214,7 @@ Generate FreeCAD Python code for the following task:"""
         last_error = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                response = await self.llm_provider.generate(llm_request)
+                response = await self.llm_provider.agenerate(llm_request)
                 script = self._clean_script(response.content)
 
                 # Validate the script

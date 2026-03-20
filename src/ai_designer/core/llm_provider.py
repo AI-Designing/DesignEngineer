@@ -164,6 +164,17 @@ class UnifiedLLMProvider:
         Raises:
             LLMError: If all retry/fallback attempts fail.
         """
+        # Unwrap LLMRequest if passed directly (agents pass the full request object)
+        if isinstance(messages, LLMRequest):
+            llm_req: LLMRequest = messages
+            if model is None and llm_req.model:
+                model = llm_req.model
+            if llm_req.temperature is not None:
+                temperature = llm_req.temperature
+            if llm_req.max_tokens is not None:
+                max_tokens = llm_req.max_tokens
+            messages = llm_req.messages
+
         # Normalise to LLMMessage list
         if messages and isinstance(messages[0], dict):
             messages = [
@@ -249,6 +260,19 @@ class UnifiedLLMProvider:
         logger.error("LLM generation failed", error=error_msg)
         raise LLMError(
             error_msg, {"models_tried": models_to_try, "last_error": str(last_error)}
+        )
+
+    async def agenerate(
+        self,
+        messages: "Union[List[LLMMessage], List[Dict[str, str]], LLMRequest]",
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs,
+    ) -> LLMResponse:
+        """Async wrapper around generate() for use in async pipeline nodes."""
+        return await asyncio.to_thread(
+            self.generate, messages, model, temperature, max_tokens, **kwargs
         )
 
     def generate_with_system_prompt(

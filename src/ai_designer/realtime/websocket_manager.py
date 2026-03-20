@@ -86,10 +86,15 @@ class WebSocketManager:
         # Background worker thread
         self.worker_thread = None
         self.stop_event = threading.Event()
+        self._loop = None  # stored by start_server() so background thread can use it
 
     async def start_server(self):
         """Start the WebSocket server"""
         print(f"🌐 Starting WebSocket server on {self.host}:{self.port}")
+
+        # Capture the running event loop so the background daemon thread can
+        # schedule coroutines with asyncio.run_coroutine_threadsafe().
+        self._loop = asyncio.get_event_loop()
 
         self.server = await websockets.serve(self.handle_client, self.host, self.port)
 
@@ -415,31 +420,18 @@ class WebSocketManager:
                 if not self.message_queue.empty():
                     send_type, target, message = self.message_queue.get(timeout=0.1)
 
-                    # Schedule async sending with proper event loop handling
-                    if self.running:
-                        try:
-                            # Try to get the existing event loop
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                # Schedule the coroutine in the existing loop
-                                asyncio.run_coroutine_threadsafe(
-                                    self._send_queued_message(
-                                        send_type, target, message
-                                    ),
-                                    loop,
-                                )
-                            else:
-                                # If no loop is running, create a new one
-                                asyncio.create_task(
-                                    self._send_queued_message(
-                                        send_type, target, message
-                                    )
-                                )
-                        except RuntimeError:
-                            # No event loop in current thread, skip for now
-                            print(
-                                f"⚠️  Skipping message send (no event loop): {message.type.value}"
-                            )
+                    # Schedule async sending in the server's event loop.
+                    # asyncio.get_event_loop() from a daemon thread has no loop,
+                    # so we use the loop captured in start_server() instead.
+                    if (
+                        self.running
+                        and self._loop is not None
+                        and self._loop.is_running()
+                    ):
+                        asyncio.run_coroutine_threadsafe(
+                            self._send_queued_message(send_type, target, message),
+                            self._loop,
+                        )
 
                 time.sleep(0.01)  # Small delay to prevent busy waiting
 

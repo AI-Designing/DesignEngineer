@@ -162,7 +162,7 @@ doc.recompute()
         self, generator, mock_provider, simple_task_graph, valid_box_script
     ):
         """Test generating code for a single task."""
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             return_value=LLMResponse(
                 content=valid_box_script, model="gpt-4o", provider="openai"
             )
@@ -174,7 +174,7 @@ doc.recompute()
         assert "task_1" in scripts
         assert "import FreeCAD" in scripts["task_1"]
         assert "box.Length = 10.0" in scripts["task_1"]
-        mock_provider.generate.assert_called_once()
+        mock_provider.agenerate.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_generate_with_dependencies(
@@ -188,7 +188,7 @@ doc.recompute()
     ):
         """Test generating code for tasks with dependencies."""
         # Mock provider returns different scripts for each task
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             side_effect=[
                 LLMResponse(
                     content=valid_box_script, model="gpt-4o", provider="openai"
@@ -211,14 +211,14 @@ doc.recompute()
         assert "box.Length" in scripts["task_1"]
         assert "cylinder.Radius" in scripts["task_2"]
         assert "Part::Cut" in scripts["task_3"]
-        assert mock_provider.generate.call_count == 3
+        assert mock_provider.agenerate.call_count == 3
 
     @pytest.mark.asyncio
     async def test_generate_with_custom_temperature(
         self, generator, mock_provider, simple_task_graph, valid_box_script
     ):
         """Test generation with custom temperature."""
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             return_value=LLMResponse(
                 content=valid_box_script, model="gpt-4o", provider="openai"
             )
@@ -227,7 +227,7 @@ doc.recompute()
         await generator.generate(simple_task_graph, temperature=0.8)
 
         # Verify temperature was passed to LLM request
-        call_args = mock_provider.generate.call_args[0][0]
+        call_args = mock_provider.agenerate.call_args[0][0]
         assert call_args.temperature == 0.8
 
     @pytest.mark.asyncio
@@ -237,7 +237,7 @@ doc.recompute()
         """Test handling of markdown-wrapped code."""
         markdown_wrapped = f"```python\n{valid_box_script}\n```"
 
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             return_value=LLMResponse(
                 content=markdown_wrapped, model="gpt-4o", provider="openai"
             )
@@ -258,7 +258,7 @@ doc.recompute()
 this is not valid python syntax!!!
 doc.recompute()"""
 
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             return_value=LLMResponse(
                 content=invalid_script, model="gpt-4o", provider="openai"
             )
@@ -279,7 +279,7 @@ os.system('rm -rf /')
 doc = FreeCAD.ActiveDocument
 # RESULT: doc"""
 
-        mock_provider.generate = AsyncMock(
+        mock_provider.agenerate = AsyncMock(
             return_value=LLMResponse(
                 content=dangerous_script, model="gpt-4o", provider="openai"
             )

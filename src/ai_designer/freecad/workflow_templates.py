@@ -93,6 +93,18 @@ def analyze_workflow_requirements(
     has_pattern_indicators = any(ind in nl_lower for ind in _PATTERN_INDICATORS)
     has_feature_indicators = any(ind in nl_lower for ind in _FEATURE_INDICATORS)
 
+    # True when the command mentions only simple geometric primitives (box,
+    # sphere, cone, cylinder) without any complex-workflow indicators such as
+    # brackets, gears, fillets, or assemblies.  These are best handled by the
+    # standard (LLM-decompose → execute) path rather than Phase 3.
+    _PRIMITIVES = ["box", "cube", "sphere", "cone", "cylinder", "torus"]
+    has_only_primitives = (
+        any(p in nl_lower for p in _PRIMITIVES)
+        and not has_complex_indicators
+        and not has_pattern_indicators
+        and not has_feature_indicators
+    )
+
     complexity_factors = sum(
         [
             has_complex_indicators,
@@ -108,7 +120,17 @@ def analyze_workflow_requirements(
     object_count = current_state.get("object_count", 0)
 
     strategy = "simple"
-    if complexity_factors >= 2 or has_complex_indicators:
+    # Primitive-only commands (box, cylinder, sphere…) must never be routed to
+    # the Phase-3 complex workflow engine — it would apply Sketcher-sketch code
+    # instead of Part::Box / Part::Cylinder primitives.  The standard LLM-
+    # decomposition path handles them correctly regardless of word count or "and".
+    if has_only_primitives:
+        strategy = "simple"
+    elif has_complex_indicators:
+        strategy = "complex_workflow"
+    elif complexity_factors >= 3:
+        # Only send to complex_workflow when there are truly complex signals
+        # beyond just "and" + long sentence (which primitives often trigger).
         strategy = "complex_workflow"
     elif requires_sketch and not is_geometric_primitive:
         strategy = "sketch_then_operate"

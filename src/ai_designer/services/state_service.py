@@ -27,17 +27,29 @@ class FreeCADStateService:
     """
 
     def __init__(
-        self, redis_host="localhost", redis_port=6379, redis_db=0, api_client=None
+        self,
+        redis_host: str = None,
+        redis_port: int = None,
+        redis_db: int = None,
+        api_client=None,
     ):
         """
         Initialize the state service
 
         Args:
-            redis_host: Redis server host
-            redis_port: Redis server port
-            redis_db: Redis database number
+            redis_host: Redis server host (falls back to REDIS_HOST env var, then 'localhost')
+            redis_port: Redis server port (falls back to REDIS_PORT env var, then 6379)
+            redis_db: Redis database number (falls back to REDIS_DB env var, then 0)
             api_client: FreeCAD API client for subprocess operations
         """
+        import os as _os
+
+        if redis_host is None:
+            redis_host = _os.getenv("REDIS_HOST", "localhost")
+        if redis_port is None:
+            redis_port = int(_os.getenv("REDIS_PORT", 6379))
+        if redis_db is None:
+            redis_db = int(_os.getenv("REDIS_DB", 0))
         # Initialize Redis client and connect
         self.redis_client = RedisClient(redis_host, redis_port, redis_db)
         self.state_cache = StateCache(self.redis_client)
@@ -128,6 +140,42 @@ class FreeCADStateService:
         if latest_key:
             return self.state_cache.retrieve_state(latest_key)
         return None
+
+    def get_latest_state(
+        self, session_id: str = None, document_name: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """Alias for get_current_state – kept for backward compatibility."""
+        return self.get_current_state(
+            document_name=document_name, session_id=session_id
+        )
+
+    def analyze_and_cache(
+        self, session_id: str = None, doc_path: str = None
+    ) -> Dict[str, Any]:
+        """Alias for analyze_and_cache_state – kept for backward compatibility."""
+        try:
+            return self.analyze_and_cache_state(
+                doc_path=doc_path,
+                session_id=session_id,
+            )
+        except Exception:
+            return {}
+
+    def get_command_history(
+        self, session_id: str = None, limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Return recent state history entries for a session (backward compat)."""
+        try:
+            return self.get_state_history(session_id=session_id, limit=limit)
+        except Exception:
+            return []
+
+    def get_session_context(self, session_id: str = None) -> Optional[Dict[str, Any]]:
+        """Return the latest cached state for a session as context (backward compat)."""
+        try:
+            return self.get_current_state(session_id=session_id)
+        except Exception:
+            return None
 
     def get_current_analysis(
         self, document_name: str = None
