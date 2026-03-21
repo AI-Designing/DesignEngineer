@@ -227,6 +227,7 @@ import traceback
 # Import FreeCAD modules
 try:
     import FreeCAD as App
+    import FreeCAD  # alias so generated scripts can use either name
     import Part
     import PartDesign
     import Sketcher

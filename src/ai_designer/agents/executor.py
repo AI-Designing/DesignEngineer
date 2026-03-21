@@ -144,9 +144,16 @@ class FreeCADExecutor:
             "request_id": request_id,
         }
 
-        # Combine all scripts in order
-        combined_script = "\n\n".join(
+        # Combine all scripts in order, injecting doc.recompute() between tasks.
+        # This is critical: boolean/fillet tasks access .Shape.Edges of prior objects;
+        # without an intermediate recompute those shapes are empty and Edges = [].
+        task_blocks = [
             f"# Task: {task_id}\n{script}" for task_id, script in scripts.items()
+        ]
+        combined_script = (
+            "\ndoc.recompute()  # materialize shapes before next task\n\n".join(
+                task_blocks
+            )
         )
 
         try:

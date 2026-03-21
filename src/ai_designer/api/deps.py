@@ -140,7 +140,7 @@ def get_freecad_executor() -> FreeCADExecutor:
 
         freecad_path = os.getenv("FREECAD_PATH")
         _freecad_executor = FreeCADExecutor(
-            timeout=60,
+            timeout=600,
             save_outputs=True,
             freecad_path=freecad_path,
         )

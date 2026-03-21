@@ -3,8 +3,21 @@ FastAPI application factory with middleware and error handling.
 """
 
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# Load .env before any other imports so OPPER_API_KEY and other vars are set
+try:
+    from dotenv import load_dotenv as _load_dotenv
+
+    _project_root = Path(__file__).resolve().parents[3]
+    _load_dotenv(_project_root / ".env", override=False)
+    _load_dotenv(_project_root / "src" / ".env", override=False)
+except ImportError:
+    pass  # python-dotenv not installed; rely on env vars already set
+
 from typing import AsyncGenerator
 from uuid import uuid4
 

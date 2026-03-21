@@ -55,48 +55,76 @@ FREECAD API REFERENCE:
 - Document operations: FreeCAD.ActiveDocument.addObject("Part::Feature", "name")
 - Recompute: FreeCAD.ActiveDocument.recompute()
 
+CRITICAL EXECUTION MODEL — READ CAREFULLY:
+All task scripts are concatenated and executed as ONE combined Python script.
+The framework automatically injects `doc.recompute()` between each task block.
+This means:
+- Variables defined in earlier tasks are ALREADY IN SCOPE — reference them directly by their Python variable name
+- NEVER use doc.getObject() to look up objects from dependency tasks — use the variable name directly
+- Do NOT add 'import FreeCAD', 'import Part', or 'doc = FreeCAD.ActiveDocument' — these are already set up
+- Do NOT call doc.recompute() yourself — the framework injects it between every task automatically
+- When your task accesses .Shape.Edges, .Shape.Faces, .Shape.Wires of a dependency object, those shapes
+  ARE already computed (because doc.recompute() ran between the dependency task and yours)
+- Every addObject() call MUST use a unique Name string that includes the task_id (e.g. "Box_task_1", "Cylinder_task_2") to avoid FreeCAD auto-renaming collisions
+
 CODING RULES:
-1. Import only: FreeCAD, Part, math (no os, sys, subprocess)
-2. Use ActiveDocument for all operations
-3. Store results in descriptive variable names (e.g., box, cylinder, cut_result)
-4. Always call doc.recompute() at the end
-5. Return the final object name in a comment: # RESULT: object_name
+1. No imports, no doc setup — just the object creation/operation code
+2. Use unique, task-specific addObject names: addObject("Part::Box", "Box_{task_id}")
+3. For dependency tasks: use the Python variable name shown in PREVIOUS TASK OUTPUTS directly
+4. Store results in descriptive variable names unique per task: box_t1, cyl_t2, cut_t4
+5. End with a comment: # RESULT: variable_name
 6. Handle units in millimeters
 7. Position objects at origin unless specified
-8. Use clear, descriptive variable names matching task descriptions
+8. QUANTITY ARITHMETIC — CRITICAL: Properties like .Length, .Width, .Height, .Radius on
+   FreeCAD objects return Quantity objects (e.g. "10 mm"), NOT plain floats. When you use
+   them in arithmetic or assign to Placement.Base.x/y/z, always call .Value to get the
+   raw float first. Examples:
+     WRONG:  cyl.Placement.Base.x = box.Length - 15.0        # ArithmeticError
+     CORRECT: cyl.Placement.Base.x = box.Length.Value - 15.0  # OK
+     WRONG:  pos = box.Width / 2                             # ArithmeticError
+     CORRECT: pos = box.Width.Value / 2                       # OK
+   Placement.Base.x/y/z always expects a plain float — NEVER assign a Quantity to it.
+   Integer and float literals (15.0, 5.0) are always safe on their own — only properties
+   of existing objects need .Value when used in arithmetic.
 
 RESPONSE FORMAT:
 Return ONLY valid Python code with no markdown formatting, explanations, or code fences.
-The code must be executable as-is in FreeCAD's Python console.
 
-Example for create_box:
-import FreeCAD
-import Part
+Example for create_box (task_1):
+box_t1 = doc.addObject("Part::Box", "Box_task_1")
+box_t1.Length = 10.0
+box_t1.Width = 10.0
+box_t1.Height = 10.0
+# RESULT: box_t1
 
-doc = FreeCAD.ActiveDocument
-if not doc:
-    doc = FreeCAD.newDocument()
+Example for create_cylinder (task_2, positioned at 15mm from origin — plain float literal, no .Value needed):
+cyl_t2 = doc.addObject("Part::Cylinder", "Cylinder_task_2")
+cyl_t2.Radius = 5.0
+cyl_t2.Height = 15.0
+cyl_t2.Placement.Base.x = 15.0
+# RESULT: cyl_t2
 
-box = doc.addObject("Part::Box", "Box")
-box.Length = 10.0
-box.Width = 10.0
-box.Height = 10.0
-doc.recompute()
-# RESULT: box
+Example for create_cylinder (task_3, positioned relative to an existing object's property — .Value REQUIRED):
+cyl_t3 = doc.addObject("Part::Cylinder", "Cylinder_task_3")
+cyl_t3.Radius = 5.0
+cyl_t3.Height = 15.0
+cyl_t3.Placement.Base.x = box_t1.Length.Value - 15.0
+# RESULT: cyl_t3
 
-Example for boolean_cut:
-import FreeCAD
-import Part
+Example for boolean_cut (task_3) where task_1=box_t1, task_2=cyl_t2:
+cut_t3 = doc.addObject("Part::Cut", "Cut_task_3")
+cut_t3.Base = box_t1
+cut_t3.Tool = cyl_t2
+# RESULT: cut_t3
 
-doc = FreeCAD.ActiveDocument
-base = doc.getObject("box")
-tool = doc.getObject("cylinder")
-
-cut_result = doc.addObject("Part::Cut", "Cut")
-cut_result.Base = base
-cut_result.Tool = tool
-doc.recompute()
-# RESULT: cut_result
+Example for fillet (task_4) where task_3=cut_t3:
+# NOTE: the framework already ran doc.recompute() before this task block executes,
+# so cut_t3.Shape.Edges is fully populated — len() will return a real non-zero count.
+fillet_t4 = doc.addObject("Part::Fillet", "Fillet_task_4")
+fillet_t4.Base = cut_t3
+__edges = [(i, 2.0, 2.0) for i in range(1, len(cut_t3.Shape.Edges) + 1)]
+fillet_t4.Edges = __edges
+# RESULT: fillet_t4
 
 Generate FreeCAD Python code for the following task:"""
 
@@ -264,15 +292,24 @@ Generate FreeCAD Python code for the following task:"""
             f"PARAMETERS: {json.dumps(task.parameters, indent=2)}",
         ]
 
-        # Add dependency information
+        # Add dependency information with full script context so the LLM
+        # knows exactly which variable names are in scope
         if task.depends_on:
             desc_parts.append(f"DEPENDS_ON: {', '.join(task.depends_on)}")
-            desc_parts.append("\nPREVIOUS TASK OUTPUTS:")
+            desc_parts.append("\nPREVIOUS TASK OUTPUTS (variables already in scope):")
             for dep_id in task.depends_on:
                 if dep_id in previous_scripts:
                     result_var = self._extract_result_variable(previous_scripts[dep_id])
+                    dep_script = previous_scripts[dep_id]
                     if result_var:
-                        desc_parts.append(f"- {dep_id}: object name = {result_var}")
+                        desc_parts.append(
+                            f"- {dep_id}: Python variable = {result_var}  "
+                            f"(use this variable directly, do NOT call doc.getObject)"
+                        )
+                    desc_parts.append(
+                        f"  [Code for {dep_id}:]\n"
+                        + "\n".join(f"  {ln}" for ln in dep_script.splitlines())
+                    )
 
         return "\n".join(desc_parts)
 
@@ -370,6 +407,29 @@ Generate FreeCAD Python code for the following task:"""
                 raise ScriptValidationError(
                     f"Task {task_id}: Dangerous pattern '{pattern}' detected"
                 )
+
+        # 4. FreeCAD Quantity arithmetic check — detect obj.Length/Width/Height/Radius
+        #    used directly in arithmetic or assigned to Placement.Base without .Value
+        _quantity_props = {"Length", "Width", "Height", "Radius", "Size", "Diameter"}
+        try:
+            tree2 = ast.parse(script)
+            for node in ast.walk(tree2):
+                # Flag: someobj.Prop used as operand in BinOp without .Value
+                if isinstance(node, ast.BinOp):
+                    for operand in (node.left, node.right):
+                        if (
+                            isinstance(operand, ast.Attribute)
+                            and operand.attr in _quantity_props
+                        ):
+                            raise ScriptValidationError(
+                                f"Task {task_id}: Quantity arithmetic detected — "
+                                f"use '.Value' when doing math with .{operand.attr} "
+                                f"(e.g. obj.{operand.attr}.Value - 15.0)"
+                            )
+        except ScriptValidationError:
+            raise
+        except Exception:
+            pass  # AST walk errors are non-fatal for this check
 
         logger.info(f"Script validation passed for task {task_id}")
 

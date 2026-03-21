@@ -19,6 +19,7 @@ Example:
 
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -226,16 +227,16 @@ Decompose the following design prompt into a task graph:"""
             json.JSONDecodeError: If response is not valid JSON
             ValueError: If required fields are missing
         """
-        # Try to extract JSON from markdown code blocks if present
+        # Extract JSON from markdown code block (which may be preceded by prose text)
         content = content.strip()
-        if content.startswith("```json"):
-            content = content[7:]  # Remove ```json
-        if content.startswith("```"):
-            content = content[3:]  # Remove ```
-        if content.endswith("```"):
-            content = content[:-3]  # Remove trailing ```
-
-        content = content.strip()
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", content)
+        if fence_match:
+            content = fence_match.group(1).strip()
+        else:
+            # No code fence — try to find the first '{' and extract from there
+            brace_idx = content.find("{")
+            if brace_idx != -1:
+                content = content[brace_idx:]
 
         # Parse JSON
         data = json.loads(content)
