@@ -80,6 +80,7 @@ class TestPlannerAgentPlanning:
     def valid_llm_response(self):
         """Create a valid LLM response with task graph JSON."""
         response_json = {
+            "plan_version": 1,
             "tasks": [
                 {
                     "id": "task_1",
@@ -131,6 +132,7 @@ class TestPlannerAgentPlanning:
 
         # Verify task graph structure
         assert isinstance(task_graph, TaskGraph)
+        assert task_graph.plan_version == 1
         assert len(task_graph.nodes) == 3
         assert len(task_graph.edges) == 2
 
@@ -175,6 +177,7 @@ class TestPlannerAgentPlanning:
     ):
         """Test parsing LLM response wrapped in markdown code blocks."""
         response_json = {
+            "plan_version": 1,
             "tasks": [
                 {
                     "id": "task_1",
@@ -243,6 +246,7 @@ class TestPlannerAgentPlanning:
     async def test_plan_with_cycle(self, planner, mock_provider, design_request):
         """Test detection of cyclic dependencies."""
         cyclic_response = {
+            "plan_version": 1,
             "tasks": [
                 {
                     "id": "task_1",
@@ -275,6 +279,62 @@ class TestPlannerAgentPlanning:
 
         with pytest.raises(RuntimeError, match="Failed to generate valid task graph"):
             await planner.plan(design_request)
+
+    @pytest.mark.asyncio
+    async def test_plan_defaults_plan_version_when_omitted(
+        self, planner, mock_provider, design_request
+    ):
+        """Omitted plan_version defaults to 1 for backward compatibility."""
+        body = {
+            "tasks": [
+                {
+                    "id": "task_1",
+                    "operation": "create_box",
+                    "description": "Box",
+                    "parameters": {"length": 1.0, "width": 1.0, "height": 1.0},
+                    "status": "pending",
+                }
+            ],
+            "dependencies": [],
+        }
+        resp = LLMResponse(
+            content=json.dumps(body),
+            model="gpt-4",
+            provider="openai",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            finish_reason="stop",
+        )
+        mock_provider.agenerate = AsyncMock(return_value=resp)
+        graph = await planner.plan(design_request)
+        assert graph.plan_version == 1
+
+    @pytest.mark.asyncio
+    async def test_plan_unknown_operation_fails(
+        self, planner, mock_provider, design_request
+    ):
+        body = {
+            "plan_version": 1,
+            "tasks": [
+                {
+                    "id": "t1",
+                    "operation": "totally_unknown_op",
+                    "description": "Bad op",
+                    "status": "pending",
+                }
+            ],
+            "dependencies": [],
+        }
+        resp = LLMResponse(
+            content=json.dumps(body),
+            model="gpt-4",
+            provider="openai",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            finish_reason="stop",
+        )
+        mock_provider.agenerate = AsyncMock(return_value=resp)
+        with pytest.raises(RuntimeError, match="Failed to generate valid task graph"):
+            await planner.plan(design_request)
+        assert mock_provider.agenerate.call_count == 3
 
 
 class TestPlannerAgentReplanning:
@@ -320,6 +380,7 @@ class TestPlannerAgentReplanning:
     ):
         """Test successful replanning with feedback."""
         improved_response = {
+            "plan_version": 1,
             "tasks": [
                 {
                     "id": "task_1",
@@ -389,6 +450,7 @@ class TestPlannerAgentHelpers:
         """Test parsing valid JSON response."""
         content = json.dumps(
             {
+                "plan_version": 1,
                 "tasks": [
                     {
                         "id": "task_1",
@@ -411,6 +473,7 @@ class TestPlannerAgentHelpers:
         """Test parsing JSON wrapped in markdown."""
         content = """```json
 {
+  "plan_version": 1,
   "tasks": [],
   "dependencies": []
 }
@@ -430,7 +493,26 @@ class TestPlannerAgentHelpers:
         """Test parsing response without tasks field."""
         content = json.dumps({"dependencies": []})
 
-        with pytest.raises(ValueError, match="missing 'tasks' field"):
+        with pytest.raises(ValueError, match="tasks"):
+            planner._parse_llm_response(content)
+
+    def test_parse_llm_response_unsupported_plan_version(self, planner):
+        """Unsupported plan_version is rejected."""
+        content = json.dumps(
+            {
+                "plan_version": 999,
+                "tasks": [
+                    {
+                        "id": "a",
+                        "operation": "create_box",
+                        "description": "Box",
+                        "status": "pending",
+                    }
+                ],
+                "dependencies": [],
+            }
+        )
+        with pytest.raises(ValueError, match="Unsupported plan_version"):
             planner._parse_llm_response(content)
 
     def test_parse_llm_response_auto_adds_dependencies(self, planner):
@@ -447,6 +529,7 @@ class TestPlannerAgentHelpers:
         from uuid import uuid4
 
         task_data = {
+            "plan_version": 1,
             "tasks": [
                 {
                     "id": "task_1",
@@ -460,6 +543,7 @@ class TestPlannerAgentHelpers:
         }
 
         graph = planner._build_task_graph(task_data, uuid4())
+        assert graph.plan_version == 1
 
         assert len(graph.nodes) == 1
         assert "task_1" in graph.nodes
@@ -469,6 +553,7 @@ class TestPlannerAgentHelpers:
         from uuid import uuid4
 
         task_data = {
+            "plan_version": 1,
             "tasks": [
                 {
                     "id": "task_1",

@@ -35,6 +35,7 @@ from .system_prompts import (
     PLANNER_SYSTEM_PROMPT,
     VALIDATOR_SYSTEM_PROMPT,
     get_agent_prompt,
+    get_planner_system_prompt,
 )
 
 __all__ = [
@@ -43,6 +44,7 @@ __all__ = [
     "GENERATOR_SYSTEM_PROMPT",
     "VALIDATOR_SYSTEM_PROMPT",
     "get_agent_prompt",
+    "get_planner_system_prompt",
     # FreeCAD reference
     "FREECAD_API_REFERENCE",
     "PARTDESIGN_WORKFLOW",

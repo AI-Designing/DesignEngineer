@@ -258,15 +258,16 @@ class PipelineNodes:
                 request_id=str(state.design_state.request_id),
             )
 
-            # Update state
+            # Pass full executor payload (geometry, state) for validator / semantics
+            errs = list(result.get("errors") or [])
+            err_msg = "; ".join(str(x) for x in errs if x) if errs else None
+            if not err_msg and not result.get("success"):
+                err_msg = "Execution failed"
             state.execution_result = {
-                "success": result.get("success", False),
+                **result,
                 "output": result.get("output", result.get("created_objects", [])),
-                "error": result.get(
-                    "errors", [result.get("error")] if result.get("error") else []
-                ),
-                "execution_time": result.get("execution_time", 0),
-                "document_path": result.get("document_path"),
+                "error": err_msg,
+                "errors": errs,
             }
 
             # WebSocket callback

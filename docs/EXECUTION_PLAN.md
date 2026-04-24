@@ -961,7 +961,151 @@ Step 16 (Prompt engineering library)        ──── Depends on Steps 9-11
 Step 17 (Export pipeline)                   ──── Depends on Step 15
                                               │
 Step 18 (Test suite)                        ──── Depends on Steps 7-13
-Step 19 (Docker production)                 ──── Depends on Steps 12, 15
+Step 19 (Docker production)                 ──── Depends o# AI Pipeline Stabilization Plan
+
+## Summary
+Build the next backend-only AI pipeline layer that makes the current graph/classifier/retrieval system reliable before adding new product features. The goal is not UI, connectors, Slack Q&A migration, spec generation, or new recommendation features. The goal is: signals can be classified, linked, indexed, retrieved, audited, and operationally recovered with confidence.
+
+Current verified state:
+- `pnpm type-check` passed.
+- Targeted graph tests passed: 15 tests across classifier, curation, and problem services.
+- `pnpm db:check-migration` passed.
+- `pnpm ai:memory:test:mocked` and stress eval passed.
+- The main remaining AI-pipeline gaps are observability, retrieval packaging, index recovery, and stronger operational validation.
+
+## Key Changes
+
+### 1. Persist Resolver Diagnostics
+Add a lightweight diagnostic record for every signal classification attempt.
+
+Implement a new Prisma model, tentatively `SignalResolverDiagnostic`, linked to workspace and signal. Store:
+- `workspaceId`
+- `signalId`
+- `outcomeType`: `linked_existing_problem`, `created_candidate_problem`, `no_match`, or `failed`
+- `resolverPath`: `AUTO_DIRECT`, `AUTO_MODEL`, or `NONE`
+- `promptVersion`
+- `embeddingModel`
+- `informativeTokenCount`
+- `isMultiIssueSignal`
+- `workspaceProblemDensity`
+- selected `problemIds` as JSON
+- candidate scores/thresholds as JSON
+- model issue count
+- `errorMessage`
+- `createdAt`
+
+Record diagnostics from:
+- direct-link path
+- model-link path
+- candidate-created path
+- no-match path
+- failed classification path
+
+Do not implement automatic recalibration yet. Use diagnostics only to make current resolver behavior inspectable and debuggable.
+
+### 2. Add an Internal Retrieval Context Package
+Keep `searchMemoryGraph()` as the low-level graph retrieval API, then add an internal packaging layer for AI use.
+
+Create a service like `services/graph/memory-context-package-service.ts` that converts hydrated matches into a stable `MemoryContextPackage`.
+
+The package should include:
+- normalized memory items
+- citation IDs
+- source node type
+- source object ID
+- source URL when available
+- short evidence text
+- score
+- linked problem/feature/decision summaries when available
+
+Default behavior:
+- hide `CANDIDATE` problems unless explicitly allowed
+- cap total package size
+- cap supporting signals per problem
+- trim long evidence text
+- preserve enough source metadata for later citation rendering
+
+Do not connect this to Slack, frontend, or a public API in this pass. This is internal plumbing so future answer generation does not reason over raw hydrated DB rows.
+
+### 3. Add Vector Index Recovery Tooling
+Add backend operational tooling so Postgres remains recoverable as the source of truth when Qdrant is stale or missing.
+
+Create a script such as `scripts/reindex-memory.ts` and package command like:
+
+```bash
+pnpm ai:memory:reindex -- --workspaceId=<id> --execute
+```
+
+Defaults:
+- dry-run unless `--execute` is provided
+- optional `--workspaceId`
+- optional `--aggregateType`
+- do not delete Qdrant points by default
+
+Behavior:
+- load current graph nodes from Postgres
+- rebuild the same outbox payload text used by graph services
+- enqueue new outbox events for those nodes
+- log counts by aggregate type
+- fail clearly if no workspace/nodes are found
+
+Do not build a UI for this.
+
+### 4. Strengthen Pipeline Health Checks
+Extend existing synthetic/eval tooling instead of adding product features.
+
+Enhance the current AI memory validation scripts to report and fail on:
+- stale `PROCESSING` signals beyond timeout
+- terminally failed classifier rows
+- failed outbox rows after max attempts
+- missing Qdrant points for active graph nodes
+- candidate problems visible in default retrieval
+- human-confirmed links overwritten by automated relinking
+- unexpected `ProblemSignalEdge` status distribution
+
+Keep mocked/stress eval deterministic. Keep live eval report-only.
+
+## Public Interfaces / Types
+Add only backend/internal interfaces:
+
+- `SignalResolverDiagnostic` Prisma model and migration.
+- `recordSignalResolverDiagnostic(input)` service helper.
+- `MemoryContextPackage` TypeScript interface.
+- `buildMemoryContextPackage(input)` service helper.
+- `pnpm ai:memory:reindex` script command.
+
+No frontend routes. No connector changes. No Slack answer rewrite. No automatic calibration learning.
+
+## Test Plan
+Add or update tests for:
+
+- resolver diagnostics are written for direct match, model match, candidate creation, no-match, and failure
+- diagnostics include `promptVersion` only when model classification ran
+- diagnostics do not break classification when diagnostic write fails; log and continue
+- memory context package hides candidates by default
+- memory context package includes citations for signals and problem-supporting signals
+- memory context package respects caps/trimming
+- reindex script dry-run does not write outbox rows
+- reindex script execute mode enqueues expected outbox rows
+- synthetic check catches stale processing rows and failed outbox/classifier states
+
+Run before considering the pass complete:
+
+```bash
+pnpm type-check
+pnpm db:check-migration
+pnpm test:unit tests/unit/services/graph/signal-classification-service.test.ts tests/unit/services/graph/problem-curation-service.test.ts tests/unit/services/graph/problem-service.test.ts tests/unit/services/graph/retrieval-service.test.ts
+pnpm ai:memory:test:mocked
+pnpm ai:memory:test:stress -- --size=1000
+git diff --check
+```
+
+## Assumptions
+- AI pipeline scope means graph memory, signal classification, vector indexing, retrieval packaging, diagnostics, and validation.
+- Frontend, connector work, Slack Q&A migration, Jira work, spec generation, and task generation are out of scope.
+- Candidate review APIs may remain backend-only for now.
+- Calibration stays manual/report-only until diagnostics provide enough data to tune safely.
+n Steps 12, 15
 Step 20 (Observability)                     ──── Depends on Step 12
 Step 21 (CI/CD)                             ──── Depends on Step 18
 ```

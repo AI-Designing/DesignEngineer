@@ -624,10 +624,13 @@ class FreeCADCLI:
         status = result.get("status", "unknown")
         workflow_type = result.get("workflow", "unknown")
 
-        # Status with emoji
-        status_emoji = (
-            "✅" if status == "success" else "❌" if status == "error" else "⚠️"
-        )
+        # Status with emoji (partial = unimplemented steps, not hard failure)
+        if status == "success":
+            status_emoji = "✅"
+        elif status == "error":
+            status_emoji = "❌"
+        else:
+            status_emoji = "⚠️"
         print(f"Status: {status_emoji} {status.upper()}")
         print(f"Workflow: {workflow_type}")
         print(f"Command: {original_command}")
@@ -635,6 +638,13 @@ class FreeCADCLI:
         # Phase 2: Face Selection Results
         if workflow_type == "face_selection":
             print(f"\n🎯 Phase 2 - Face Selection Workflow:")
+            if status == "error":
+                code = result.get("error_code")
+                if code:
+                    print(f"  • Error code: {code}")
+                on = result.get("object_name")
+                if on:
+                    print(f"  • Object: {on}")
             selected_face = result.get("selected_face")
             if selected_face:
                 print(
@@ -660,6 +670,9 @@ class FreeCADCLI:
             print(f"  • Total Steps: {total_steps}")
             print(f"  • Completed: {completed_steps}")
             print(f"  • Failed: {failed_steps}")
+            skipped = result.get("skipped_steps")
+            if skipped is not None:
+                print(f"  • Skipped (unimplemented): {skipped}")
             print(f"  • Execution Time: {execution_time:.2f}s")
             print(f"  • Complexity Score: {complexity_score:.2f}")
 
@@ -669,11 +682,29 @@ class FreeCADCLI:
                 print(f"\n  🔧 Step Details:")
                 for i, step in enumerate(step_results, 1):
                     if hasattr(step, "status"):
-                        step_status = "✅" if step.status == "success" else "❌"
-                        step_name = getattr(step, "step_name", f"Step {i}")
+                        st = step.status
+                        if st == "success":
+                            step_status = "✅"
+                        elif st == "skipped_unimplemented":
+                            step_status = "⏭️"
+                        elif st == "error":
+                            step_status = "❌"
+                        else:
+                            step_status = "⚠️"
+                        step_name = getattr(step, "step_id", f"Step {i}")
                     else:
-                        step_status = "✅" if step.get("status") == "success" else "❌"
-                        step_name = step.get("step_name", f"Step {i}")
+                        st = step.get("status", "")
+                        if st == "success":
+                            step_status = "✅"
+                        elif st == "skipped_unimplemented":
+                            step_status = "⏭️"
+                        elif st == "error":
+                            step_status = "❌"
+                        else:
+                            step_status = "⚠️"
+                        step_name = step.get(
+                            "step_id", step.get("step_name", f"Step {i}")
+                        )
                     print(f"    {step_status} {step_name}")
 
         # Phase 1: Sketch-Then-Operate Results

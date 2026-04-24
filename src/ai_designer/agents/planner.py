@@ -14,7 +14,7 @@ Key Features:
 Example:
     >>> planner = PlannerAgent(llm_provider=my_provider)
     >>> task_graph = await planner.plan("Create a box 10x10x10 with a 2mm hole")
-    >>> print(f"Generated {len(task_graph.tasks)} tasks")
+    >>> print(f"Generated {len(task_graph.nodes)} tasks")
 """
 
 import json
@@ -23,9 +23,13 @@ import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from pydantic import ValidationError
+
 from ai_designer.agents.base import BaseAgent
+from ai_designer.agents.prompts.system_prompts import get_planner_system_prompt
 from ai_designer.core.llm_provider import LLMRequest, LLMRole, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType, DesignRequest
+from ai_designer.schemas.planner_plan import parse_and_validate_plan_dict
 from ai_designer.schemas.task_graph import (
     TaskDependency,
     TaskGraph,
@@ -50,67 +54,6 @@ class PlannerAgent(BaseAgent):
         default_temperature: Temperature for LLM sampling (default: 0.3 for consistency)
         max_retries: Maximum retry attempts for LLM failures (default: 3)
     """
-
-    # System prompt for task decomposition
-    SYSTEM_PROMPT = """You are an expert CAD design planner specialized in FreeCAD.
-Your role is to decompose natural language design descriptions into a hierarchical
-task graph of primitive CAD operations.
-
-AVAILABLE OPERATIONS:
-- create_box: Create a rectangular box (params: length, width, height)
-- create_cylinder: Create a cylinder (params: radius, height)
-- create_sphere: Create a sphere (params: radius)
-- create_cone: Create a cone (params: radius1, radius2, height)
-- create_torus: Create a torus (params: radius1, radius2)
-- boolean_cut: Subtract one shape from another (params: base_task_id, tool_task_id)
-- boolean_fuse: Union of two shapes (params: base_task_id, tool_task_id)
-- boolean_common: Intersection of two shapes (params: base_task_id, tool_task_id)
-- fillet: Round edges (params: base_task_id, radius, edge_indices)
-- chamfer: Bevel edges (params: base_task_id, distance, edge_indices)
-- extrude: Extrude a 2D sketch (params: sketch_task_id, distance)
-- revolve: Revolve a 2D sketch (params: sketch_task_id, axis, angle)
-
-RESPONSE FORMAT:
-Return a JSON object with this exact structure:
-{
-  "tasks": [
-    {
-      "id": "task_1",
-      "operation": "create_box",
-      "description": "Create base box 10x10x10mm",
-      "parameters": {"length": 10.0, "width": 10.0, "height": 10.0},
-      "status": "pending"
-    },
-    {
-      "id": "task_2",
-      "operation": "create_cylinder",
-      "description": "Create hole cylinder radius 1mm height 12mm",
-      "parameters": {"radius": 1.0, "height": 12.0},
-      "status": "pending"
-    },
-    {
-      "id": "task_3",
-      "operation": "boolean_cut",
-      "description": "Cut hole from box",
-      "parameters": {"base_task_id": "task_1", "tool_task_id": "task_2"},
-      "status": "pending"
-    }
-  ],
-  "dependencies": [
-    {"from_task_id": "task_1", "to_task_id": "task_3"},
-    {"from_task_id": "task_2", "to_task_id": "task_3"}
-  ]
-}
-
-RULES:
-1. Use descriptive task IDs (task_1, task_2, etc.)
-2. All parameters must be numeric or reference other task IDs
-3. Dependencies must form a DAG (no cycles)
-4. Status is always "pending" for new tasks
-5. Boolean operations require base_task_id and tool_task_id
-6. Ensure topological ordering is possible
-
-Decompose the following design prompt into a task graph:"""
 
     def __init__(
         self,
@@ -164,7 +107,7 @@ Decompose the following design prompt into a task graph:"""
             messages=[
                 {
                     "role": LLMRole.SYSTEM,
-                    "content": self.SYSTEM_PROMPT,
+                    "content": get_planner_system_prompt(),
                 },
                 {
                     "role": LLMRole.USER,
@@ -196,7 +139,7 @@ Decompose the following design prompt into a task graph:"""
 
                 return task_graph
 
-            except (json.JSONDecodeError, ValueError, KeyError) as e:
+            except (json.JSONDecodeError, ValueError, KeyError, ValidationError) as e:
                 logger.warning(
                     f"Attempt {attempt}/{self.max_retries} failed: {e}",
                     exc_info=True,
@@ -241,21 +184,8 @@ Decompose the following design prompt into a task graph:"""
         # Parse JSON
         data = json.loads(content)
 
-        # Validate structure
-        if "tasks" not in data:
-            raise ValueError("Response missing 'tasks' field")
-
-        if not isinstance(data["tasks"], list):
-            raise ValueError("'tasks' must be a list")
-
-        if "dependencies" not in data:
-            # Dependencies are optional, default to empty list
-            data["dependencies"] = []
-
-        if not isinstance(data["dependencies"], list):
-            raise ValueError("'dependencies' must be a list")
-
-        return data
+        envelope = parse_and_validate_plan_dict(data)
+        return envelope.to_task_graph_dict()
 
     def _build_task_graph(
         self, task_data: Dict[str, Any], request_id: UUID
@@ -272,7 +202,8 @@ Decompose the following design prompt into a task graph:"""
         Raises:
             ValueError: If task graph has cycles or invalid structure
         """
-        task_graph = TaskGraph(request_id=request_id)
+        plan_version = task_data.get("plan_version")
+        task_graph = TaskGraph(request_id=request_id, plan_version=plan_version)
 
         # Add all tasks first
         for task_dict in task_data["tasks"]:
@@ -338,6 +269,7 @@ Decompose the following design prompt into a task graph:"""
 
         # Convert previous graph to JSON for context
         previous_json = {
+            "plan_version": previous_graph.plan_version or 1,
             "tasks": [
                 {
                     "id": task.task_id,
@@ -367,13 +299,13 @@ VALIDATION FEEDBACK:
 {feedback}
 
 Please generate an improved task graph that addresses the feedback while
-maintaining the original design intent."""
+maintaining the original design intent. Include "plan_version": 1 in the JSON."""
 
         llm_request = LLMRequest(
             messages=[
                 {
                     "role": LLMRole.SYSTEM,
-                    "content": self.SYSTEM_PROMPT,
+                    "content": get_planner_system_prompt(),
                 },
                 {
                     "role": LLMRole.USER,
@@ -400,7 +332,7 @@ maintaining the original design intent."""
 
                 return task_graph
 
-            except (json.JSONDecodeError, ValueError, KeyError) as e:
+            except (json.JSONDecodeError, ValueError, KeyError, ValidationError) as e:
                 logger.warning(
                     f"Replan attempt {attempt}/{self.max_retries} failed: {e}",
                     exc_info=True,

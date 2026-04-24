@@ -340,6 +340,16 @@ pytest tests/test_llm.py
 pytest --cov=ai_designer
 ```
 
+### Real FreeCAD benchmarks (optional)
+
+The `tests/benchmarks/` suite runs **real** `freecadcmd` subprocesses and asserts on structured document state (not only exit status). If no suitable console FreeCAD binary is available, these tests **skip** so default CI stays fast and green.
+
+```bash
+make test-freecad
+```
+
+Requires `freecadcmd` (or `FreeCADCmd`) on your `PATH`, or `FREECAD_PATH` pointing at a console-capable FreeCAD executable. Snap-only `freecad` is not used for this tier because it often does not support the same `-c script.py` workflow as `freecadcmd`.
+
 ### Code Quality
 ```bash
 # Format code

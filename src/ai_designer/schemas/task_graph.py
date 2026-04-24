@@ -106,6 +106,10 @@ class TaskGraph(BaseModel):
         default_factory=lambda: str(uuid4()), description="Unique graph identifier"
     )
     request_id: UUID = Field(..., description="Links to DesignRequest/DesignState")
+    plan_version: Optional[int] = Field(
+        default=None,
+        description="Planner JSON plan_version when the graph was produced",
+    )
 
     # Graph structure
     nodes: Dict[str, TaskNode] = Field(

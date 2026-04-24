@@ -5,6 +5,13 @@ Pure workflow-analysis helpers extracted from StateAwareCommandProcessor.
 
 These functions are stateless (no instance state needed), making them
 easily unit-testable in isolation.
+
+Legacy routing contract (Track 9):
+    ``analyze_workflow_requirements`` is a **fast pre-router** only. It must not
+    stand in for CAD reasoning. When ``ambiguous_routing`` is true or
+    ``recommended_escalation`` is ``"standard_llm"``, callers should use the
+    standard LLM task-decomposition path (or the canonical agent pipeline),
+    not Phase-2/3 specialized workflows driven by these keywords alone.
 """
 
 from typing import Any, Dict
@@ -62,6 +69,7 @@ _BASE_STEPS = {
     "multi_step": 4,
     "complex_workflow": 6,
 }
+_PRIMITIVES = ["box", "cube", "sphere", "cone", "cylinder", "torus"]
 
 
 def analyze_workflow_requirements(
@@ -76,7 +84,9 @@ def analyze_workflow_requirements(
         current_state: Combined state dict from ``_get_current_state()``.
 
     Returns:
-        Dict describing the chosen strategy and associated flags.
+        Dict describing the chosen strategy and associated flags, including
+        ``ambiguous_routing`` and ``recommended_escalation`` when heuristics
+        are unreliable (prefer standard LLM decomposition).
     """
     nl_lower = nl_command.lower()
 
@@ -97,7 +107,6 @@ def analyze_workflow_requirements(
     # sphere, cone, cylinder) without any complex-workflow indicators such as
     # brackets, gears, fillets, or assemblies.  These are best handled by the
     # standard (LLM-decompose → execute) path rather than Phase 3.
-    _PRIMITIVES = ["box", "cube", "sphere", "cone", "cylinder", "torus"]
     has_only_primitives = (
         any(p in nl_lower for p in _PRIMITIVES)
         and not has_complex_indicators
@@ -115,6 +124,22 @@ def analyze_workflow_requirements(
             "with" in nl_lower,
         ]
     )
+
+    strong_signal_count = sum(
+        [
+            has_complex_indicators,
+            has_pattern_indicators,
+            has_feature_indicators,
+        ]
+    )
+    weak_only_complexity = complexity_factors >= 3 and strong_signal_count == 0
+
+    has_primitive_mention = any(p in nl_lower for p in _PRIMITIVES)
+    primitive_with_advanced = has_primitive_mention and (
+        has_complex_indicators or has_pattern_indicators or has_feature_indicators
+    )
+    ambiguous_routing = primitive_with_advanced or weak_only_complexity
+    heuristic_low_confidence = ambiguous_routing
 
     has_active_body = current_state.get("live_state", {}).get("active_body", False)
     object_count = current_state.get("object_count", 0)
@@ -147,6 +172,12 @@ def analyze_workflow_requirements(
     ):
         strategy = "face_selection"
 
+    # Ambiguous keyword mix: prefer standard LLM path over specialized workflows.
+    if ambiguous_routing:
+        strategy = "simple"
+
+    recommended_escalation = "standard_llm" if ambiguous_routing else None
+
     return {
         "strategy": strategy,
         "requires_sketch_then_operate": strategy == "sketch_then_operate",
@@ -159,6 +190,9 @@ def analyze_workflow_requirements(
         "needs_active_body": requires_sketch and not has_active_body,
         "estimated_steps": estimate_step_count(nl_command, strategy),
         "complexity_score": calculate_complexity_score(nl_command, current_state),
+        "ambiguous_routing": ambiguous_routing,
+        "heuristic_low_confidence": heuristic_low_confidence,
+        "recommended_escalation": recommended_escalation,
     }
 
 

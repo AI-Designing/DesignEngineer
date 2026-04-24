@@ -2,6 +2,12 @@
 State-Driven Command Processor
 Handles complex natural language commands by breaking them down into steps
 and using Redis state for intelligent decision making.
+
+Subprocess / headless FreeCAD: each ``freecadcmd -c`` run is a fresh process.
+Multi-step guarantees are implemented by (1) merging LLM-decomposed steps
+into one script where possible, or (2) reloading a checkpoint ``.FCStd`` via
+``document_path`` between orchestrated steps (see ``WorkflowOrchestrator`` and
+``FreeCADAPIClient.execute_command``).
 """
 
 import json
@@ -11,6 +17,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from .face_selection_engine import FaceSelectionError  # noqa: E402
 from .geometry_helpers import (  # noqa: E402
     analyze_geometry_requirements,
     build_circle_sketch_script,
@@ -32,6 +39,11 @@ class StateAwareCommandProcessor:
     """
     Enhanced command processor that uses Redis state to break down complex
     natural language commands into multiple executable steps.
+
+    In subprocess mode, per-step ``command_executor`` calls do not share an
+    in-memory document unless steps are merged into one script or the caller
+    chains ``.FCStd`` checkpoints (see ``_execute_as_single_script`` and
+    ``WorkflowOrchestrator._workflow_execute``).
     """
 
     def __init__(self, llm_client, state_cache, api_client, command_executor):
@@ -192,10 +204,10 @@ class StateAwareCommandProcessor:
         Save the FreeCAD document after a complete workflow execution.
 
         Works reliably in direct (in-process) FreeCAD mode where the document
-        accumulates state across steps.  In subprocess mode each step runs in
-        an isolated process, so this call saves whatever the in-memory client
-        currently holds (may be empty); per-step saves via save_path are the
-        meaningful checkpoints in that mode.
+        accumulates state across steps.  In subprocess mode, prefer the
+        ``saved_path`` / ``last_saved_path`` from the last merged script or
+        orchestrator checkpoint; this helper may still reflect an empty client
+        if nothing was loaded into the parent process.
 
         Returns the saved path on success, or None on failure.
         """
@@ -249,6 +261,16 @@ class StateAwareCommandProcessor:
                     "suggestion": preflight_check["suggestion"],
                 }
 
+            # Geometry parse before PartDesign body work — escalate without creating a body.
+            geometry_analysis = self._analyze_geometry_requirements(nl_command)
+            if (
+                geometry_analysis.get("needs_llm_geometry")
+                or geometry_analysis.get("parse_confidence") == "none"
+            ):
+                result = self._process_standard_workflow(nl_command, current_state)
+                result["routing_override"] = "sketch_to_llm_decomposition"
+                return result
+
             # Step 2: Ensure PartDesign Body exists and is active
             if workflow_analysis.get("needs_active_body", False):
                 body_result = self._ensure_active_body()
@@ -259,10 +281,6 @@ class StateAwareCommandProcessor:
                 # Update state after body creation
                 current_state = self._get_current_state()
 
-            # Step 3: Analyze geometry requirements
-            geometry_analysis = self._analyze_geometry_requirements(nl_command)
-
-            # Step 4: Create sketch on appropriate plane
             sketch_result = self._create_parametric_sketch(
                 geometry_analysis, current_state
             )
@@ -273,13 +291,12 @@ class StateAwareCommandProcessor:
             # Update state after sketch creation
             current_state = self._get_current_state()
 
-            # Step 5: Perform the operation (Pad, Pocket, etc.)
             operation_result = self._execute_sketch_operation(
                 geometry_analysis, current_state
             )
             execution_results.append(operation_result)
 
-            # Step 6: Final state validation
+            # Step 5: Final state validation
             final_state = self._get_current_state()
             validation_result = self._validate_final_state(
                 final_state, geometry_analysis
@@ -505,6 +522,16 @@ class StateAwareCommandProcessor:
                     "step": "face_selection",
                     "error": "No suitable face found for operation",
                 }
+        except FaceSelectionError as e:
+            err: Dict[str, Any] = {
+                "status": "error",
+                "step": "face_selection",
+                "error": str(e),
+                "error_code": e.code,
+            }
+            if e.object_name is not None:
+                err["object_name"] = e.object_name
+            return err
         except Exception as e:
             return {
                 "status": "error",
@@ -740,6 +767,7 @@ print(f"SUCCESS: Hole created - radius {radius}mm, depth {depth}mm")
                 "workflow": "complex_workflow",
                 "total_steps": execution_result["total_steps"],
                 "completed_steps": execution_result["completed_steps"],
+                "skipped_steps": execution_result.get("skipped_steps", 0),
                 "failed_steps": execution_result["failed_steps"],
                 "execution_time": execution_result["execution_time"],
                 "step_results": execution_result["step_results"],
@@ -782,14 +810,25 @@ print(f"SUCCESS: Hole created - radius {radius}mm, depth {depth}mm")
 
             print(f"📋 Task broken down into {len(task_breakdown['steps'])} steps")
 
-            # Execute each step with state updates
-            execution_result = self._execute_step_sequence(task_breakdown, nl_command)
+            # One merged subprocess preserves document state (Track 10)
+            execution_result = self._execute_as_single_script(
+                task_breakdown, nl_command
+            )
 
             return {
                 "status": execution_result.get("status", "unknown"),
                 "workflow": "multi_step",
-                "steps_executed": execution_result.get("completed_steps", 0),
-                "execution_results": execution_result.get("step_results", []),
+                "steps_executed": execution_result.get("executed_steps", 0),
+                "total_steps": execution_result.get("total_steps", 0),
+                "skipped_steps": execution_result.get("skipped_steps", 0),
+                "execution_results": [
+                    {
+                        "step": "merged_subprocess",
+                        "status": execution_result.get("status"),
+                        "execution_result": execution_result.get("execution_result"),
+                        "analysis": execution_result.get("analysis", ""),
+                    }
+                ],
                 "final_state": self._get_current_state(),
             }
 
@@ -1577,100 +1616,6 @@ doc.recompute()"""
                     },
                 }
             ],
-        }
-
-    def _execute_steps_with_state_updates(
-        self, steps: list, initial_state: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Execute a list of steps by generating raw FreeCAD code per step and
-        calling command_executor.execute() directly — never execute_natural_language()
-        — to avoid the recursive loop where step descriptions containing
-        relationship words ("next to", "and") re-trigger complex command routing.
-        """
-        execution_results = []
-        current_state = initial_state
-        successful_operations = 0
-
-        print(f"🔄 Executing {len(steps)} steps with state updates...")
-
-        for i, step in enumerate(steps, 1):
-            print(
-                f"\n🎯 Step {i}/{len(steps)}: {step.get('description', 'Unknown step')}"
-            )
-
-            try:
-                # Generate raw FreeCAD code for the step — never call
-                # execute_natural_language() here as that would re-detect
-                # step descriptions as "complex" and recurse infinitely.
-                if self.command_executor:
-                    freecad_code = self._generate_step_command(step, current_state)
-                    if freecad_code:
-                        result = self.command_executor.execute(freecad_code)
-                    else:
-                        # Last resort: LLM generation without NL routing
-                        result = self._execute_step_with_llm(step, current_state)
-                else:
-                    result = self._execute_step_with_llm(step, current_state)
-
-                # Normalise: command_executor.execute() uses {"status":"success"},
-                # while state_aware paths use {"success": True}.
-                step_ok = result and (
-                    result.get("success", False) or result.get("status") == "success"
-                )
-                if step_ok:
-                    successful_operations += 1
-                    print(f"✅ Step {i} completed successfully")
-                else:
-                    err = (
-                        result.get("error") or result.get("message", "Unknown error")
-                        if result
-                        else "No result"
-                    )
-                    print(f"⚠️ Step {i} completed with issues: {err}")
-
-                execution_results.append(
-                    {
-                        "step": i,
-                        "description": step.get("description", ""),
-                        "result": result,
-                        "status": "success" if step_ok else "error",
-                    }
-                )
-
-                # Update state after each step
-                try:
-                    current_state = self._get_current_state()
-                    self._cache_state_update(current_state, f"after_step_{i}")
-                except Exception as state_error:
-                    print(
-                        f"⚠️ Warning: Could not update state after step {i}: {state_error}"
-                    )
-
-            except Exception as e:
-                print(f"❌ Step {i} failed: {str(e)}")
-                execution_results.append(
-                    {
-                        "step": i,
-                        "description": step.get("description", ""),
-                        "result": {"error": str(e), "success": False},
-                        "status": "error",
-                    }
-                )
-
-        # Final state update
-        final_state = self._get_current_state()
-
-        return {
-            "status": "success" if successful_operations > 0 else "error",
-            "workflow": "standard_decomposition",
-            "total_steps": len(steps),
-            "successful_operations": successful_operations,
-            "execution_results": execution_results,
-            "initial_state": initial_state,
-            "final_state": final_state,
-            "objects_created": final_state.get("object_count", 0)
-            - initial_state.get("object_count", 0),
         }
 
     def _execute_step_with_llm(

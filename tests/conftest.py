@@ -40,7 +40,16 @@ def pytest_configure(config):
     )
     config.addinivalue_line("markers", "slow: marks tests as slow running (>1s)")
     config.addinivalue_line(
-        "markers", "requires_freecad: marks tests that require FreeCAD installation"
+        "markers",
+        "requires_freecad: marks tests that spawn real FreeCAD (freecadcmd)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "freecad: alias of requires_freecad for real FreeCAD subprocess tests",
+    )
+    config.addinivalue_line(
+        "markers",
+        "cad_e2e: marks CAD benchmark/e2e corpus tests (optional tier)",
     )
 
 
@@ -206,27 +215,28 @@ class MockLLMProvider:
             return self._get_default_response()
 
     def _get_planner_response(self) -> str:
-        """Return mock planner response."""
+        """Return mock planner response (matches planner_plan + PlannerAgent parser)."""
         return json.dumps(
             {
-                "task_graph_id": "tg_mock_001",
+                "plan_version": 1,
                 "tasks": [
                     {
                         "id": "task_1",
-                        "type": "create_sketch",
+                        "operation": "create_sketch",
                         "description": "Create base sketch",
-                        "dependencies": [],
                         "parameters": {"shape": "rectangle", "width": 10, "height": 10},
+                        "status": "pending",
                     },
                     {
                         "id": "task_2",
-                        "type": "extrude",
+                        "operation": "extrude",
                         "description": "Extrude sketch to create 3D solid",
-                        "dependencies": ["task_1"],
                         "parameters": {"length": 10},
+                        "status": "pending",
+                        "depends_on": ["task_1"],
                     },
                 ],
-                "reasoning": "Mock reasoning for task decomposition",
+                "dependencies": [],
             }
         )
 

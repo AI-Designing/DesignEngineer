@@ -31,6 +31,9 @@ dependencies = [
     # LLM and AI
     "opperai>=0.9.0",
 
+    # TypedDict helpers (Python < 3.11 compatibility)
+    "typing_extensions>=4.8.0",
+
     # Data validation and configuration
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
@@ -53,6 +56,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.2",
+    "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.1",
     "black>=23.9.1",
@@ -125,6 +129,9 @@ markers = [
     "slow: marks tests as slow",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "requires_freecad: marks tests that spawn real FreeCAD (freecadcmd)",
+    "freecad: alias of requires_freecad for real FreeCAD subprocess tests",
+    "cad_e2e: marks CAD benchmark/e2e corpus tests (optional tier)",
 ]
 
 [tool.coverage.run]

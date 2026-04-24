@@ -21,6 +21,7 @@ from ai_designer.agents.validator import ValidatorAgent
 from ai_designer.core.llm_provider import UnifiedLLMProvider
 from ai_designer.export.exporter import CADExporter
 from ai_designer.orchestration.pipeline import PipelineExecutor
+from ai_designer.runtime.pipeline_factory import create_pipeline_executor
 
 logger = logging.getLogger(__name__)
 
@@ -229,13 +230,13 @@ def get_pipeline_executor(
     global _pipeline_executor
 
     if _pipeline_executor is None:
-        _pipeline_executor = PipelineExecutor(
+        _pipeline_executor = create_pipeline_executor(
             planner=planner,
             generator=generator,
             validator=validator,
             executor=executor,
-            websocket_callback=None,  # Will be set when WebSocket manager is ready
             max_iterations=5,
+            websocket_callback=None,  # Will be set when WebSocket manager is ready
         )
         logger.info("Initialized PipelineExecutor with LangGraph")
 

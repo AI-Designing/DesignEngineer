@@ -10,7 +10,6 @@ import json
 from typing import Any, Dict, List, Optional
 
 from ai_designer.agents.base import BaseAgent
-from ai_designer.core.exceptions import LLMError
 from ai_designer.core.llm_provider import (
     LLMMessage,
     LLMRequest,
@@ -19,9 +18,19 @@ from ai_designer.core.llm_provider import (
 )
 from ai_designer.core.logging_config import get_logger
 from ai_designer.schemas.design_state import AgentType
+from ai_designer.schemas.planner_plan import (
+    EXECUTABLE_PLANNER_OPS,
+    OPERATION_API_HINTS,
+    UnsupportedGeneratorOperation,
+    assert_generator_can_emit,
+)
 from ai_designer.schemas.task_graph import TaskGraph, TaskNode, TaskStatus
 
 logger = get_logger(__name__)
+
+_ALLOWED_OPS_LINE = "ALLOWED_OPERATION_TYPES (this software build): " + ", ".join(
+    sorted(EXECUTABLE_PLANNER_OPS)
+)
 
 
 class ScriptValidationError(Exception):
@@ -45,15 +54,24 @@ class GeneratorAgent(BaseAgent):
         max_retries: Maximum retry attempts for generation failures (default: 3)
     """
 
-    # System prompt for FreeCAD code generation
-    SYSTEM_PROMPT = """You are an expert FreeCAD Python code generator specialized in Part and PartDesign workbenches.
+    # System prompt for FreeCAD code generation (task blocks; see HeadlessRunner + executor)
+    SYSTEM_PROMPT = (
+        "You are an expert FreeCAD Python code generator specialized in Part and "
+        "PartDesign (body → sketch → pad/pocket-style features) workbenches.\n\n"
+        + _ALLOWED_OPS_LINE
+        + """
 
-FREECAD API REFERENCE:
-- Create primitives: Part.makeBox(l,w,h), Part.makeCylinder(r,h), Part.makeSphere(r), Part.makeCone(r1,r2,h), Part.makeTorus(r1,r2)
-- Boolean operations: obj1.cut(obj2), obj1.fuse(obj2), obj1.common(obj2)
-- Transformations: Part.makeFilletedBox(l,w,h,r), obj.makeFillet(radius, edges)
-- Document operations: FreeCAD.ActiveDocument.addObject("Part::Feature", "name")
-- Recompute: FreeCAD.ActiveDocument.recompute()
+FREECAD API REFERENCE (use doc.addObject; Part booleans on shapes are optional — prefer Part workbench objects below):
+- Part primitives: doc.addObject("Part::Box"|"Part::Cylinder"|"Part::Sphere"|"Part::Cone"|"Part::Torus", name) with Length/Width/Height/Radius fields as applicable
+- Booleans: doc.addObject("Part::Cut"|"Part::Fuse"|"Part::Common", name); set .Base and .Tool to prior task variables
+- Dress-up: doc.addObject("Part::Fillet"|"Part::Chamfer", name); set .Base and .Edges per FreeCAD API
+- PartDesign: doc.addObject("PartDesign::Body", name); doc.addObject("Sketcher::SketchObject", name); attach sketch to body with body_var.addObject(sketch); doc.addObject("PartDesign::Pad", name); body.addObject(pad); pad.Profile = sketch_var; pad.Length = distance_mm
+
+PARTDESIGN / SKETCHER (body-first):
+- Always anchor new sketches on an existing PartDesign::Body from dependencies when the task is sketch/pad; use MapMode = "FlatFace" and Support = (doc.XY_Plane, [""]) for a datum sketch, or attach to a face when the spec says so
+- Use sketch.addGeometry(Part.LineSegment(App.Vector(...), App.Vector(...))) for wires; sketch.addConstraint(Sketcher.Constraint("Distance", edge_index, value_mm)) etc.
+- Close sketch geometry before pads when the design intent requires a closed profile
+- App (FreeCAD as App), Part, PartDesign, and Sketcher are already available in the runner — do NOT add import lines for them
 
 CRITICAL EXECUTION MODEL — READ CAREFULLY:
 All task scripts are concatenated and executed as ONE combined Python script.
@@ -61,7 +79,7 @@ The framework automatically injects `doc.recompute()` between each task block.
 This means:
 - Variables defined in earlier tasks are ALREADY IN SCOPE — reference them directly by their Python variable name
 - NEVER use doc.getObject() to look up objects from dependency tasks — use the variable name directly
-- Do NOT add 'import FreeCAD', 'import Part', or 'doc = FreeCAD.ActiveDocument' — these are already set up
+- Do NOT add 'import FreeCAD', 'import Part', 'import App', or 'doc = FreeCAD.ActiveDocument' — these are already set up
 - Do NOT call doc.recompute() yourself — the framework injects it between every task automatically
 - When your task accesses .Shape.Edges, .Shape.Faces, .Shape.Wires of a dependency object, those shapes
   ARE already computed (because doc.recompute() ran between the dependency task and yours)
@@ -71,7 +89,7 @@ CODING RULES:
 1. No imports, no doc setup — just the object creation/operation code
 2. Use unique, task-specific addObject names: addObject("Part::Box", "Box_{task_id}")
 3. For dependency tasks: use the Python variable name shown in PREVIOUS TASK OUTPUTS directly
-4. Store results in descriptive variable names unique per task: box_t1, cyl_t2, cut_t4
+4. Store results in descriptive variable names unique per task: box_t1, cyl_t2, cut_t4, body_t1, sketch_t2, pad_t3
 5. End with a comment: # RESULT: variable_name
 6. Handle units in millimeters
 7. Position objects at origin unless specified
@@ -96,6 +114,32 @@ box_t1.Length = 10.0
 box_t1.Width = 10.0
 box_t1.Height = 10.0
 # RESULT: box_t1
+
+Example for create_body (task_1):
+body_t1 = doc.addObject("PartDesign::Body", "Body_task_1")
+# RESULT: body_t1
+
+Example for create_sketch (task_2) after body_t1 from task_1:
+sketch_t2 = doc.addObject("Sketcher::SketchObject", "Sketch_task_2")
+body_t1.addObject(sketch_t2)
+sketch_t2.MapMode = "FlatFace"
+sketch_t2.Support = (doc.XY_Plane, [""])
+sketch_t2.addGeometry(Part.LineSegment(App.Vector(-50, -25, 0), App.Vector(50, -25, 0)))
+sketch_t2.addGeometry(Part.LineSegment(App.Vector(50, -25, 0), App.Vector(50, 25, 0)))
+sketch_t2.addGeometry(Part.LineSegment(App.Vector(50, 25, 0), App.Vector(-50, 25, 0)))
+sketch_t2.addGeometry(Part.LineSegment(App.Vector(-50, 25, 0), App.Vector(-50, -25, 0)))
+sketch_t2.addConstraint(Sketcher.Constraint("Horizontal", 0))
+sketch_t2.addConstraint(Sketcher.Constraint("Vertical", 1))
+sketch_t2.addConstraint(Sketcher.Constraint("Distance", 0, 100.0))
+sketch_t2.addConstraint(Sketcher.Constraint("Distance", 1, 50.0))
+# RESULT: sketch_t2
+
+Example for pad (task_3) after body_t1 and sketch_t2:
+pad_t3 = doc.addObject("PartDesign::Pad", "Pad_task_3")
+body_t1.addObject(pad_t3)
+pad_t3.Profile = sketch_t2
+pad_t3.Length = 30.0
+# RESULT: pad_t3
 
 Example for create_cylinder (task_2, positioned at 15mm from origin — plain float literal, no .Value needed):
 cyl_t2 = doc.addObject("Part::Cylinder", "Cylinder_task_2")
@@ -127,6 +171,7 @@ fillet_t4.Edges = __edges
 # RESULT: fillet_t4
 
 Generate FreeCAD Python code for the following task:"""
+    )
 
     def __init__(
         self,
@@ -220,8 +265,11 @@ Generate FreeCAD Python code for the following task:"""
             Generated Python code as a string
 
         Raises:
+            UnsupportedGeneratorOperation: If ``task.operation_type`` is not executable.
             RuntimeError: If generation fails after max retries
         """
+        assert_generator_can_emit(task.operation_type)
+
         # Build task description with context
         task_description = self._build_task_description(task, previous_scripts)
 
@@ -311,7 +359,16 @@ Generate FreeCAD Python code for the following task:"""
                         + "\n".join(f"  {ln}" for ln in dep_script.splitlines())
                     )
 
+        hint = self._operation_hints(task.operation_type)
+        if hint:
+            desc_parts.append(f"OPERATION_API_HINT:\n{hint}")
+
         return "\n".join(desc_parts)
+
+    @staticmethod
+    def _operation_hints(operation_type: str) -> str:
+        """Stable FreeCAD API notes for the LLM (from planner_plan registry)."""
+        return OPERATION_API_HINTS.get(operation_type, "")
 
     def _clean_script(self, raw_script: str) -> str:
         """Clean LLM output to extract pure Python code.

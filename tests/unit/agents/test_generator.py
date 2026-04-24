@@ -10,6 +10,7 @@ import pytest
 from ai_designer.agents.generator import GeneratorAgent, ScriptValidationError
 from ai_designer.core.llm_provider import LLMResponse, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType
+from ai_designer.schemas.planner_plan import UnsupportedGeneratorOperation
 from ai_designer.schemas.task_graph import TaskGraph, TaskNode, TaskStatus
 
 
@@ -288,6 +289,51 @@ doc = FreeCAD.ActiveDocument
         with pytest.raises(RuntimeError, match="Failed to generate code"):
             await generator.generate(simple_task_graph)
 
+    @pytest.mark.asyncio
+    async def test_generate_rejects_planned_only_before_llm(
+        self, generator, mock_provider
+    ):
+        """Planned-only ops must fail before any LLM call."""
+        request_id = uuid4()
+        graph = TaskGraph(request_id=request_id)
+        graph.add_task(
+            TaskNode(
+                task_id="task_1",
+                operation_type="loft",
+                description="Loft between profiles",
+                parameters={},
+            )
+        )
+        mock_provider.agenerate = AsyncMock(
+            return_value=LLMResponse(
+                content="# RESULT: x", model="gpt-4o", provider="openai"
+            )
+        )
+
+        with pytest.raises(UnsupportedGeneratorOperation, match="planned_only"):
+            await generator.generate(graph)
+
+        mock_provider.agenerate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_generate_rejects_unknown_operation(self, generator, mock_provider):
+        request_id = uuid4()
+        graph = TaskGraph(request_id=request_id)
+        graph.add_task(
+            TaskNode(
+                task_id="task_1",
+                operation_type="totally_unknown_op_xyz",
+                description="N/A",
+                parameters={},
+            )
+        )
+        mock_provider.agenerate = AsyncMock()
+
+        with pytest.raises(UnsupportedGeneratorOperation, match="unknown operation"):
+            await generator.generate(graph)
+
+        mock_provider.agenerate.assert_not_called()
+
 
 class TestGeneratorAgentHelpers:
     """Test GeneratorAgent helper methods."""
@@ -405,6 +451,43 @@ doc.recompute()"""
         description = generator._build_task_description(task, previous_scripts)
 
         assert "DEPENDS_ON: task_1, task_2" in description
-        assert "PREVIOUS TASK OUTPUTS:" in description
+        assert "PREVIOUS TASK OUTPUTS (variables already in scope):" in description
         assert "box" in description
         assert "cyl" in description
+
+    def test_build_task_description_pad_includes_api_hint(self, generator):
+        """PartDesign pad tasks receive OPERATION_API_HINT from the registry."""
+        task = TaskNode(
+            task_id="task_3",
+            operation_type="pad",
+            description="Pad sketch to solid",
+            parameters={"length": 30.0},
+            depends_on=["task_1", "task_2"],
+        )
+        previous_scripts = {
+            "task_1": "body_t1 = doc.addObject('PartDesign::Body', 'B')\n# RESULT: body_t1",
+            "task_2": "sketch_t2 = doc.addObject('Sketcher::SketchObject', 'S')\n# RESULT: sketch_t2",
+        }
+        description = generator._build_task_description(task, previous_scripts)
+
+        assert "OPERATION_API_HINT:" in description
+        assert "PartDesign::Pad" in description
+        assert "Profile" in description
+
+    def test_system_prompt_includes_partdesign_slice(self):
+        assert "PartDesign::Body" in GeneratorAgent.SYSTEM_PROMPT
+        assert "Sketcher::SketchObject" in GeneratorAgent.SYSTEM_PROMPT
+        assert "PartDesign::Pad" in GeneratorAgent.SYSTEM_PROMPT
+        assert "ALLOWED_OPERATION_TYPES" in GeneratorAgent.SYSTEM_PROMPT
+
+    def test_validate_script_partdesign_pad_block(self, generator):
+        """Representative PartDesign task block passes AST and import checks."""
+        script = """pad_t3 = doc.addObject("PartDesign::Pad", "Pad_task_3")
+body_t1.addObject(pad_t3)
+pad_t3.Profile = sketch_t2
+pad_t3.Length = 30.0
+# RESULT: pad_t3"""
+        generator._validate_script(script, "task_3")
+
+    def test_operation_hints_empty_for_unmapped_op(self, generator):
+        assert generator._operation_hints("nonexistent_op_name") == ""

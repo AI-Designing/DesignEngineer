@@ -27,15 +27,15 @@ class GeometricValidation(BaseModel):
     )
     body_count: int = Field(default=0, ge=0, description="Number of solid bodies")
 
-    # Geometric checks
-    is_manifold: bool = Field(
-        default=True, description="All bodies are manifold (watertight)"
+    # Geometric checks (None = not measured — do not treat as pass or fail)
+    is_manifold: Optional[bool] = Field(
+        default=None, description="Manifold/watertight if known"
     )
-    has_invalid_faces: bool = Field(
-        default=False, description="Contains invalid/degenerate faces"
+    has_invalid_faces: Optional[bool] = Field(
+        default=None, description="Invalid/degenerate faces if known"
     )
-    has_self_intersections: bool = Field(
-        default=False, description="Contains self-intersecting geometry"
+    has_self_intersections: Optional[bool] = Field(
+        default=None, description="Self-intersections if known"
     )
 
     # Measurements
@@ -79,6 +79,15 @@ class SemanticValidation(BaseModel):
     # Issues
     issues: List[str] = Field(
         default_factory=list, description="Semantic validation issues"
+    )
+
+    data_gaps: List[str] = Field(
+        default_factory=list,
+        description="Checks skipped or inconclusive due to missing execution/state data",
+    )
+    structured_notes: List[str] = Field(
+        default_factory=list,
+        description="Structured semantic checks performed (for debugging / UI)",
     )
 
 
