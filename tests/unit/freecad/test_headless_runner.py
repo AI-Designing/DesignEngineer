@@ -14,6 +14,7 @@ import pytest
 
 from ai_designer.freecad.headless_runner import HeadlessRunner, get_execution_semaphore
 from ai_designer.sandbox.result import ExecutionStatus
+from ai_designer.schemas.document_state import STATE_SCHEMA_VERSION
 
 
 @pytest.fixture
@@ -69,6 +70,7 @@ class TestHeadlessRunner:
         mock_result.stdout = """
 CREATED_OBJECT: Box
 CREATED_OBJECT: Cylinder
+RECOMPUTE_SUCCESS
 Execution completed successfully
 """
         mock_result.stderr = ""
@@ -103,7 +105,7 @@ Execution completed successfully
             )
 
         assert result.success is False
-        assert result.status == ExecutionStatus.ERROR
+        assert result.status == ExecutionStatus.EXECUTION_FAILED
         assert "Syntax error" in result.error
 
     @pytest.mark.asyncio
@@ -114,6 +116,7 @@ Execution completed successfully
         mock_result.stdout = """
 CREATED_OBJECT: Box
 WARNING: Object may have constraints issues
+RECOMPUTE_SUCCESS
 Execution completed
 """
         mock_result.stderr = ""
@@ -126,8 +129,9 @@ Execution completed
             )
 
         assert result.success is True
-        assert len(result.warnings) > 0
-        assert any("constraints" in w for w in result.warnings)
+        warns = result.metadata.get("warnings", [])
+        assert len(warns) > 0
+        assert any("constraints" in w for w in warns)
 
     @pytest.mark.asyncio
     async def test_retry_logic_with_recompute_error(self, headless_runner):
@@ -185,7 +189,7 @@ CREATED_OBJECT: Cylinder001
 WARNING: Mesh quality may be low
 RECOMPUTE_SUCCESS
 """
-        mock_result.stderr = "ERROR: Minor issue detected"
+        mock_result.stderr = ""
 
         with patch("subprocess.run", return_value=mock_result):
             result = await headless_runner.execute_script(
@@ -197,8 +201,9 @@ RECOMPUTE_SUCCESS
         assert len(result.created_objects) == 2
         assert "Box001" in result.created_objects
         assert "Cylinder001" in result.created_objects
-        assert len(result.warnings) > 0
-        assert any("Mesh quality" in w for w in result.warnings)
+        warns = result.metadata.get("warnings", [])
+        assert len(warns) > 0
+        assert any("Mesh quality" in w for w in warns)
 
     @pytest.mark.asyncio
     async def test_metadata_saving(self, headless_runner, temp_outputs_dir):
@@ -208,7 +213,7 @@ RECOMPUTE_SUCCESS
 
         mock_result = Mock()
         mock_result.returncode = 0
-        mock_result.stdout = "CREATED_OBJECT: Box"
+        mock_result.stdout = "CREATED_OBJECT: Box\nRECOMPUTE_SUCCESS"
         mock_result.stderr = ""
 
         with patch("subprocess.run", return_value=mock_result):
@@ -218,8 +223,8 @@ RECOMPUTE_SUCCESS
                 request_id=request_id,
             )
 
-        # Check metadata file exists
-        metadata_files = list(temp_outputs_dir.glob("*_metadata.json"))
+        # Check metadata file exists (JSON sidecar next to FCStd workflow)
+        metadata_files = list(temp_outputs_dir.glob("*.json"))
         assert len(metadata_files) > 0
 
         # Verify metadata content
@@ -255,8 +260,16 @@ RECOMPUTE_SUCCESS
 
     def test_command_detection_fallback(self):
         """Test FreeCAD command detection fallback."""
+        real_glob = Path.glob
+
+        def _no_freecad_appimages(self, pattern):
+            if pattern == "FreeCAD*.AppImage":
+                return iter([])
+            return real_glob(self, pattern)
+
         with patch("subprocess.run", side_effect=FileNotFoundError()):
-            runner = HeadlessRunner()
+            with patch.object(Path, "glob", _no_freecad_appimages):
+                runner = HeadlessRunner()
             assert runner.freecad_cmd == "freecadcmd"
 
 
@@ -270,8 +283,7 @@ class TestStateExtractor:
 
         return StateExtractor(freecad_cmd=mock_freecad_cmd)
 
-    @pytest.mark.asyncio
-    async def test_extract_state_success(self, state_extractor, tmp_path):
+    def test_extract_state_success(self, state_extractor, tmp_path):
         """Test successful state extraction."""
         doc_path = tmp_path / "test.FCStd"
         doc_path.touch()
@@ -286,6 +298,23 @@ class TestStateExtractor:
             ],
             "feature_tree": {},
             "recompute_errors": [],
+            "constraints": {"total": 0, "by_type": {}},
+            "geometry_summary": {
+                "solid_object_count": 2,
+                "total_volume_mm3": 1500.0,
+                "document_bbox": {
+                    "xmin": 0.0,
+                    "ymin": 0.0,
+                    "zmin": 0.0,
+                    "xmax": 10.0,
+                    "ymax": 10.0,
+                    "zmax": 20.0,
+                },
+                "largest_solid_by_volume": {"name": "Cylinder", "volume_mm3": 785.0},
+            },
+            "sketches": [],
+            "recompute_issues": [],
+            "sketch_constraints_truncated": False,
         }
 
         mock_result = Mock()
@@ -301,9 +330,92 @@ class TestStateExtractor:
         assert state["success"] is True
         assert state["object_count"] == 2
         assert len(state["objects"]) == 2
+        assert state["state_schema_version"] == STATE_SCHEMA_VERSION
+        assert state["geometry_summary"]["total_volume_mm3"] == 1500.0
+        assert state["sketch_constraints_truncated"] is False
 
-    @pytest.mark.asyncio
-    async def test_extract_state_missing_file(self, state_extractor, tmp_path):
+    def test_extract_state_backward_compat_normalization(
+        self, state_extractor, tmp_path
+    ):
+        """Legacy extractor JSON without Track 7 keys gets defaults + issues derived."""
+        doc_path = tmp_path / "legacy.FCStd"
+        doc_path.touch()
+
+        state_data = {
+            "success": True,
+            "document_name": "legacy",
+            "object_count": 1,
+            "objects": [{"name": "Box", "type": "Part::Box", "label": "Box"}],
+            "feature_tree": {},
+            "recompute_errors": ["Object 'Box' has state 3 (Error)"],
+            "constraints": {"total": 0, "by_type": {}},
+        }
+
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = (
+            f"STATE_JSON_START\n{json.dumps(state_data)}\nSTATE_JSON_END"
+        )
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            state = state_extractor.extract_state(doc_path)
+
+        assert state["state_schema_version"] == STATE_SCHEMA_VERSION
+        assert state["geometry_summary"] is None
+        assert state["sketches"] == []
+        assert len(state["recompute_issues"]) == 1
+        assert state["recompute_issues"][0]["message"].startswith("Object")
+
+    def test_create_extraction_script_injects_detail_level(self, state_extractor):
+        script = state_extractor._create_extraction_script(
+            Path("/tmp/model.FCStd"), "minimal"
+        )
+        assert 'DETAIL_LEVEL = "minimal"' in script
+        assert "STATE_SCHEMA_VERSION = %s" % STATE_SCHEMA_VERSION in script
+
+    def test_create_extraction_script_invalid_detail_level_fallback(
+        self, state_extractor
+    ):
+        from ai_designer.schemas.document_state import DEFAULT_DETAIL_LEVEL
+
+        script = state_extractor._create_extraction_script(
+            Path("/tmp/model.FCStd"), "not-a-level"
+        )
+        assert 'DETAIL_LEVEL = "%s"' % DEFAULT_DETAIL_LEVEL in script
+
+    def test_extract_state_forwards_detail_level(self, state_extractor, tmp_path):
+        doc_path = tmp_path / "fwd.FCStd"
+        doc_path.touch()
+        payload = {
+            "success": True,
+            "document_name": "fwd",
+            "object_count": 0,
+            "objects": [],
+            "feature_tree": {},
+            "recompute_errors": [],
+            "constraints": {"total": 0, "by_type": {}},
+        }
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = f"STATE_JSON_START\n{json.dumps(payload)}\nSTATE_JSON_END"
+        mock_result.stderr = ""
+
+        with patch.object(
+            state_extractor,
+            "_create_extraction_script",
+            wraps=state_extractor._create_extraction_script,
+        ) as script_fn:
+            with patch(
+                "ai_designer.freecad.state_extractor.subprocess.run",
+                return_value=mock_result,
+            ):
+                state_extractor.extract_state(doc_path, detail_level="full")
+
+        script_fn.assert_called_once()
+        assert script_fn.call_args[0][1] == "full"
+
+    def test_extract_state_missing_file(self, state_extractor, tmp_path):
         """Test state extraction with missing file."""
         doc_path = tmp_path / "nonexistent.FCStd"
 
@@ -312,8 +424,7 @@ class TestStateExtractor:
         assert state["success"] is False
         assert "not found" in state["error"].lower()
 
-    @pytest.mark.asyncio
-    async def test_extract_state_timeout(self, state_extractor, tmp_path):
+    def test_extract_state_timeout(self, state_extractor, tmp_path):
         """Test state extraction timeout."""
         import subprocess
 

@@ -415,9 +415,12 @@ print("EXECUTION_COMPLETE")
                     continue
 
         # All retries exhausted
+        final_status = ExecutionStatus.EXECUTION_FAILED
+        if last_error and "timeout" in last_error.lower():
+            final_status = ExecutionStatus.TIMEOUT
         return ExecutionResult(
             success=False,
-            status=ExecutionStatus.EXECUTION_FAILED,
+            status=final_status,
             error=f"Failed after {self.max_retries} attempts. Last error: {last_error}",
             metadata={"retries": attempt, "last_error": last_error},
         )
@@ -809,6 +812,7 @@ except Exception as e:
         try:
             import shutil
 
+            output_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(doc_path, output_path)
             logger.info(f"FCStd copied: {doc_path} -> {output_path}")
             return output_path

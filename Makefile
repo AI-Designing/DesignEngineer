@@ -1,4 +1,4 @@
-.PHONY: install install-dev lint format test test-unit test-integration test-cov test-coverage clean security pre-commit build help all
+.PHONY: install install-dev lint format test test-unit test-integration test-freecad test-cov test-coverage clean security pre-commit build help all
 
 # Default target
 all: install-dev lint test
@@ -12,6 +12,7 @@ help:
 	@echo "  test              Run all tests (unit + integration)"
 	@echo "  test-unit         Run unit tests only (fast, no infrastructure)"
 	@echo "  test-integration  Run integration tests only (requires Redis)"
+	@echo "  test-freecad      Run real FreeCAD benchmark corpus (optional; needs freecadcmd)"
 	@echo "  test-cov          Run tests with coverage report"
 	@echo "  test-coverage     Alias for test-cov"
 	@echo "  security          Run security checks"
@@ -55,6 +56,11 @@ test-integration:
 	PYTHONPATH="" ./venv/bin/pytest tests/integration/ -v -m "integration or not integration"
 	@echo "✓ Integration tests passed!"
 	@echo "Note: Ensure Redis is running for integration tests"
+
+test-freecad:
+	@echo "Running real FreeCAD benchmark corpus (skips if freecadcmd / FREECAD_PATH missing)..."
+	PYTHONPATH="" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ./venv/bin/python -m pytest tests/benchmarks/ -v -m cad_e2e --override-ini="addopts=-v --tb=short"
+	@echo "✓ FreeCAD benchmark tier finished (skipped cases are OK without FreeCAD CLI)."
 
 test-cov:
 	@echo "Running tests with coverage..."

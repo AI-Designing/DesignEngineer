@@ -1,10 +1,32 @@
 #!/usr/bin/env python3
 """
 Phase 3: Multi-Step Workflow Orchestrator
-Coordinates complex multi-step operations and manages workflow execution
+Coordinates complex multi-step operations and manages workflow execution.
+
+Step execution honesty (supported vs not)
+-----------------------------------------
+``WorkflowStepType`` values are decomposed from NL commands; execution behavior:
+
+- **Executed in FreeCAD** (when ``command_executor`` is set): ``SKETCH_CREATE``
+  (primitives / sketch), ``OPERATION_PAD``, ``OPERATION_HOLE`` (through-hole
+  cut via ``Part::Cut`` on the last ``PartDesign::Pad`` or ``Part::*`` solid).
+- **Skipped** (``status=skipped_unimplemented``; workflow may end as
+  ``partial``): pattern steps, fillet/chamfer, pocket, face selection, shell,
+  assembly constraint, state validation — not wired to FreeCAD yet.
+- **Error**: dependency failure, missing executor where required, or FreeCAD
+  script failure.
+
+Hole limitation: axis is +Z; position is XY center of the target solid's
+bounding box (no face picking). Coordinate with Track 8 if face-based holes
+are required.
+
+Workflow aggregate ``status``: ``error`` if any step errored; else ``partial``
+if any step was skipped; else ``warning`` / ``success`` as documented on
+``WorkflowExecutionResult``.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -56,13 +78,19 @@ class WorkflowStep:
 
 @dataclass
 class WorkflowExecutionResult:
-    """Result of workflow step execution"""
+    """Result of workflow step execution.
+
+    ``status`` is one of: ``success``, ``warning``, ``error``,
+    ``skipped_unimplemented`` (no silent mock success).
+    ``reason_code`` is optional machine-stable context (e.g. for validators).
+    """
 
     step_id: str
-    status: str  # 'success', 'warning', 'error'
+    status: str
     output: Dict[str, Any]
     execution_time: float
     error_message: Optional[str] = None
+    reason_code: Optional[str] = None
     state_changes: Dict[str, Any] = None
 
     def __post_init__(self):
@@ -89,6 +117,60 @@ class WorkflowOrchestrator:
         self.workflow_cache = {}
         # Pull command_executor from state_processor so workflow steps can execute FreeCAD
         self.command_executor = getattr(state_processor, "command_executor", None)
+
+    @staticmethod
+    def _aggregate_workflow_status(
+        execution_results: List["WorkflowExecutionResult"],
+    ) -> str:
+        if any(r.status == "error" for r in execution_results):
+            return "error"
+        if any(r.status == "skipped_unimplemented" for r in execution_results):
+            return "partial"
+        if any(r.status == "warning" for r in execution_results):
+            return "warning"
+        return "success"
+
+    def _result_skipped_unimplemented(
+        self,
+        step: WorkflowStep,
+        detail: str,
+        reason_code: str,
+    ) -> WorkflowExecutionResult:
+        st = step.step_type.value
+        return WorkflowExecutionResult(
+            step_id=step.step_id,
+            status="skipped_unimplemented",
+            output={
+                "skipped_unimplemented": True,
+                "step_type": st,
+                "reason_code": reason_code,
+            },
+            execution_time=0.0,
+            error_message=detail,
+            reason_code=reason_code,
+        )
+
+    @staticmethod
+    def _safe_fc_object_name(step_id: str, suffix: str) -> str:
+        base = re.sub(r"[^0-9a-zA-Z_]", "_", step_id)
+        name = f"{base}{suffix}" if suffix else base
+        return (name or "workflow_step")[:100]
+
+    def _workflow_execute(
+        self, context: Dict[str, Any], freecad_code: str
+    ) -> Dict[str, Any]:
+        """Run ``freecad_code`` via ``command_executor`` with optional FCStd checkpoint.
+
+        Subprocess FreeCAD runs are process-isolated.  After step 1 saves a
+        document, ``context[\"checkpoint_fcstd\"]`` points at that file and is
+        passed as ``document_path`` so step 2+ see the same geometry.
+        """
+        if not self.command_executor:
+            return {"status": "error", "message": "No command executor available"}
+        chk = context.get("checkpoint_fcstd")
+        if chk:
+            return self.command_executor.execute(freecad_code, document_path=chk)
+        return self.command_executor.execute(freecad_code)
 
     def decompose_complex_workflow(
         self, nl_command: str, current_state: Dict[str, Any]
@@ -398,12 +480,20 @@ class WorkflowOrchestrator:
     def execute_workflow_steps(
         self, steps: List[WorkflowStep], context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Execute workflow steps with dependency management"""
+        """Execute workflow steps with dependency management.
+
+        ``context`` may include ``checkpoint_fcstd`` to resume from a saved
+        ``.FCStd``; otherwise it is initialised to ``None``.  After each
+        successful FreeCAD step, the checkpoint is updated from
+        ``command_executor.last_saved_path`` so the next subprocess can reload
+        the same document (Track 10).
+        """
         logger.info(f"🚀 Executing {len(steps)} workflow steps...")
 
         execution_results = []
-        overall_status = "success"
         step_outputs = {}  # Store outputs for dependency resolution
+        if "checkpoint_fcstd" not in context:
+            context["checkpoint_fcstd"] = None
 
         start_time = datetime.now()
 
@@ -416,12 +506,12 @@ class WorkflowOrchestrator:
                     result = WorkflowExecutionResult(
                         step_id=step.step_id,
                         status="error",
-                        output={},
+                        output={"reason_code": "DEPENDENCY_VALIDATION_FAILED"},
                         execution_time=0.0,
                         error_message="Dependency validation failed",
+                        reason_code="DEPENDENCY_VALIDATION_FAILED",
                     )
                     execution_results.append(result)
-                    overall_status = "error"
                     break
 
                 # Execute step
@@ -435,14 +525,21 @@ class WorkflowOrchestrator:
                 # Store output for dependent steps
                 step_outputs[step.step_id] = result.output
 
+                if result.status == "success" and self.command_executor:
+                    lp = getattr(self.command_executor, "last_saved_path", None)
+                    if lp:
+                        context["checkpoint_fcstd"] = lp
+
                 if result.status == "error":
-                    overall_status = "error"
                     logger.error(
                         f"❌ Step {step.step_id} failed: {result.error_message}"
                     )
                     break
+                if result.status == "skipped_unimplemented":
+                    logger.warning(
+                        f"⏭️ Step {step.step_id} skipped (unimplemented): {result.error_message}"
+                    )
                 elif result.status == "warning":
-                    overall_status = "warning"
                     logger.warning(f"⚠️ Step {step.step_id} completed with warnings")
                 else:
                     logger.info(f"✅ Step {step.step_id} completed successfully")
@@ -451,24 +548,29 @@ class WorkflowOrchestrator:
                 result = WorkflowExecutionResult(
                     step_id=step.step_id,
                     status="error",
-                    output={},
+                    output={"reason_code": "STEP_EXCEPTION"},
                     execution_time=0.0,
                     error_message=str(e),
+                    reason_code="STEP_EXCEPTION",
                 )
                 execution_results.append(result)
-                overall_status = "error"
                 logger.error(f"❌ Exception in step {step.step_id}: {e}")
                 break
 
         end_time = datetime.now()
         total_time = (end_time - start_time).total_seconds()
 
+        overall_status = self._aggregate_workflow_status(execution_results)
+        completed_steps = sum(1 for r in execution_results if r.status == "success")
+        skipped_steps = sum(
+            1 for r in execution_results if r.status == "skipped_unimplemented"
+        )
+
         workflow_result = {
             "status": overall_status,
             "total_steps": len(steps),
-            "completed_steps": len(
-                [r for r in execution_results if r.status != "error"]
-            ),
+            "completed_steps": completed_steps,
+            "skipped_steps": skipped_steps,
             "failed_steps": len([r for r in execution_results if r.status == "error"]),
             "execution_time": total_time,
             "step_results": execution_results,
@@ -477,7 +579,8 @@ class WorkflowOrchestrator:
 
         logger.info(f"🎯 Workflow execution complete: {workflow_result['status']}")
         logger.info(
-            f"📊 Completed {workflow_result['completed_steps']}/{workflow_result['total_steps']} steps"
+            f"📊 Success {workflow_result['completed_steps']}/{workflow_result['total_steps']} "
+            f"(skipped_unimplemented={skipped_steps}, failed={workflow_result['failed_steps']})"
         )
 
         return workflow_result
@@ -506,12 +609,10 @@ class WorkflowOrchestrator:
             ]:
                 return self._execute_feature_step(step, context)
             else:
-                # Mock execution for unsupported step types
-                return WorkflowExecutionResult(
-                    step_id=step.step_id,
-                    status="success",
-                    output={"mock_execution": True, "step_type": step.step_type.value},
-                    execution_time=0.1,
+                return self._result_skipped_unimplemented(
+                    step,
+                    f"Workflow step type not implemented: {step.step_type.value}",
+                    "UNIMPLEMENTED_STEP",
                 )
 
         except Exception as e:
@@ -784,7 +885,7 @@ doc.recompute()
 
             # Execute via command_executor
             if self.command_executor:
-                result = self.command_executor.execute(freecad_code)
+                result = self._workflow_execute(context, freecad_code)
                 return WorkflowExecutionResult(
                     step_id=step.step_id,
                     status="success" if result.get("status") == "success" else "error",
@@ -850,7 +951,7 @@ doc.recompute()
 print("Pad created: {pad_name} height={height}mm")
 """
         if self.command_executor:
-            result = self.command_executor.execute(freecad_code)
+            result = self._workflow_execute(context, freecad_code)
             return WorkflowExecutionResult(
                 step_id=step.step_id,
                 status="success" if result.get("status") == "success" else "error",
@@ -865,63 +966,121 @@ print("Pad created: {pad_name} height={height}mm")
                 if result.get("status") != "success"
                 else None,
             )
-        # No executor — return mock so workflow doesn't break entirely
         return WorkflowExecutionResult(
             step_id=step.step_id,
-            status="success",
-            output={"pad_created": True, "pad_name": pad_name, "height": height},
-            execution_time=0.3,
+            status="error",
+            output={"reason_code": "NO_COMMAND_EXECUTOR"},
+            execution_time=0.0,
+            error_message="No command executor available",
+            reason_code="NO_COMMAND_EXECUTOR",
         )
 
     def _execute_hole_step(
         self, step: WorkflowStep, context: Dict[str, Any]
     ) -> WorkflowExecutionResult:
-        """Execute hole creation step"""
-        # Mock implementation - would integrate with actual hole operation
+        """Through-hole along +Z at XY center of the target solid's bounding box.
+
+        Prefers the last ``PartDesign::Pad`` with a valid shape, else the last
+        ``Part::*`` object with a valid shape. Requires ``command_executor``.
+        """
+        if not self.command_executor:
+            return WorkflowExecutionResult(
+                step_id=step.step_id,
+                status="error",
+                output={"reason_code": "NO_COMMAND_EXECUTOR"},
+                execution_time=0.0,
+                error_message="No command executor available",
+                reason_code="NO_COMMAND_EXECUTOR",
+            )
+
+        diameter = float(step.parameters.get("diameter", 5.0))
+        radius = diameter / 2.0
+        depth = step.parameters.get("depth", "through")
+        tool_name = self._safe_fc_object_name(step.step_id, "_hole_tool")
+        cut_name = self._safe_fc_object_name(step.step_id, "_hole_cut")
+
+        freecad_code = f"""
+import FreeCAD as App
+import Part
+doc = App.ActiveDocument
+if not doc:
+    raise RuntimeError("No active document")
+target = None
+for obj in reversed(doc.Objects):
+    tid = getattr(obj, "TypeId", "")
+    sh = getattr(obj, "Shape", None)
+    if sh is None or not sh.isValid():
+        continue
+    if tid == "PartDesign::Pad":
+        target = obj
+        break
+if target is None:
+    for obj in reversed(doc.Objects):
+        tid = getattr(obj, "TypeId", "")
+        sh = getattr(obj, "Shape", None)
+        if sh is None or not sh.isValid():
+            continue
+        if tid.startswith("Part::"):
+            target = obj
+            break
+if target is None:
+    raise RuntimeError("No PartDesign::Pad or Part:: solid found for hole cut")
+bb = target.Shape.BoundBox
+cx = 0.5 * (bb.XMin + bb.XMax)
+cy = 0.5 * (bb.YMin + bb.YMax)
+z0 = bb.ZMin - 20.0
+tool_h = bb.ZLength + 50.0
+tool = doc.addObject("Part::Cylinder", "{tool_name}")
+tool.Radius = {radius}
+tool.Height = tool_h
+tool.Placement = App.Placement(App.Vector(cx, cy, z0), App.Rotation())
+cut = doc.addObject("Part::Cut", "{cut_name}")
+cut.Base = target
+cut.Tool = tool
+doc.recompute()
+if cut.Shape.isNull():
+    raise RuntimeError("Boolean cut produced an empty shape")
+print("Hole cut created: {cut_name} diameter={diameter} depth={depth!r}")
+"""
+
+        result = self._workflow_execute(context, freecad_code)
+        ok = result.get("status") == "success"
         return WorkflowExecutionResult(
             step_id=step.step_id,
-            status="success",
+            status="success" if ok else "error",
             output={
-                "hole_created": True,
-                "hole_name": f"Hole_{step.step_id}",
-                "diameter": step.parameters.get("diameter", 5.0),
-                "depth": step.parameters.get("depth", "through"),
+                "hole_created": ok,
+                "hole_cut_name": cut_name,
+                "diameter": diameter,
+                "depth": depth,
+                "execution_result": result,
+                "reason_code": None if ok else "HOLE_EXECUTION_FAILED",
             },
             execution_time=0.2,
+            error_message=None
+            if ok
+            else result.get("message", "Hole execution failed"),
+            reason_code=None if ok else "HOLE_EXECUTION_FAILED",
         )
 
     def _execute_pattern_step(
         self, step: WorkflowStep, context: Dict[str, Any]
     ) -> WorkflowExecutionResult:
-        """Execute pattern creation step"""
-        # Mock implementation - would integrate with pattern engine
-        return WorkflowExecutionResult(
-            step_id=step.step_id,
-            status="success",
-            output={
-                "pattern_created": True,
-                "pattern_name": f"Pattern_{step.step_id}",
-                "pattern_type": step.step_type.value,
-                "count": step.parameters.get("count", 1),
-            },
-            execution_time=0.4,
+        """Pattern steps are not implemented (no pattern_engine in default wiring)."""
+        return self._result_skipped_unimplemented(
+            step,
+            "Linear/circular/matrix patterns are not implemented in the workflow orchestrator yet.",
+            "UNIMPLEMENTED_PATTERN",
         )
 
     def _execute_feature_step(
         self, step: WorkflowStep, context: Dict[str, Any]
     ) -> WorkflowExecutionResult:
-        """Execute feature operation step (fillet, chamfer, etc.)"""
-        # Mock implementation - would integrate with advanced features engine
-        return WorkflowExecutionResult(
-            step_id=step.step_id,
-            status="success",
-            output={
-                "feature_applied": True,
-                "feature_name": f"Feature_{step.step_id}",
-                "feature_type": step.step_type.value,
-                "radius": step.parameters.get("radius", 1.0),
-            },
-            execution_time=0.3,
+        """Fillet/chamfer (and similar) are not implemented in the orchestrator yet."""
+        return self._result_skipped_unimplemented(
+            step,
+            "Fillet/chamfer workflow steps are not implemented in the workflow orchestrator yet.",
+            "UNIMPLEMENTED_FEATURE",
         )
 
     def _validate_step_dependencies(

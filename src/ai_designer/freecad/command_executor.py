@@ -61,8 +61,14 @@ class CommandExecutor:
         os.makedirs(outputs_dir, exist_ok=True)
         return os.path.join(outputs_dir, filename)
 
-    def execute(self, command):
-        """Execute a FreeCAD command"""
+    def execute(self, command, document_path=None):
+        """Execute a FreeCAD command.
+
+        Args:
+            command: FreeCAD Python script body.
+            document_path: Optional ``.FCStd`` from a prior step; required in
+                subprocess mode when chaining multi-step workflows across runs.
+        """
         if not self.api_client:
             raise ValueError("API client not initialized")
 
@@ -74,7 +80,9 @@ class CommandExecutor:
             save_path = self._compute_save_path() if self.auto_save else None
 
             # Execute the command (save_path embedded → same subprocess, no state loss)
-            response = self.api_client.execute_command(command, save_path=save_path)
+            response = self.api_client.execute_command(
+                command, save_path=save_path, document_path=document_path
+            )
 
             # Read saved_path back from the response
             if self.auto_save and response.get("status") == "success":
@@ -126,7 +134,10 @@ class CommandExecutor:
             # Update state if state manager is available
             if self.state_manager and response.get("status") == "success":
                 try:
-                    current_state = self.api_client.get_document_state()
+                    doc_for_state = response.get("saved_path") or self.last_saved_path
+                    current_state = self.api_client.get_document_state(
+                        document_path=doc_for_state
+                    )
                     # Add file location to state
                     current_state["last_saved_path"] = self.last_saved_path
                     self.state_manager.update_state(current_state)

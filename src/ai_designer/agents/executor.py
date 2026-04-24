@@ -13,9 +13,38 @@ from uuid import uuid4
 from ai_designer.core.logging_config import get_logger
 from ai_designer.core.sandbox import ExecutionResult, execute_safe_script
 from ai_designer.freecad.headless_runner import HeadlessRunner
-from ai_designer.freecad.state_extractor import StateExtractor
+from ai_designer.freecad.state_extractor import (
+    StateExtractor,
+    geometry_summary_from_state,
+)
 
 logger = get_logger(__name__)
+
+
+def _attach_geometry_to_results(
+    results: Dict[str, Any],
+    state: Optional[Dict[str, Any]],
+    unavailable_reason: Optional[str] = None,
+) -> None:
+    """Populate ``geometry``, legacy flat metrics, and ``geometry_unavailable_reason``."""
+    if unavailable_reason:
+        results["geometry"] = None
+        results["geometry_unavailable_reason"] = unavailable_reason
+        return
+    if not state:
+        results["geometry"] = None
+        results["geometry_unavailable_reason"] = "no document state"
+        return
+    geom = geometry_summary_from_state(state)
+    if geom is None:
+        results["geometry"] = None
+        results["geometry_unavailable_reason"] = state.get(
+            "error", "state extraction did not yield geometry"
+        )
+        return
+    results["geometry"] = geom.model_dump()
+    results.update(geom.to_legacy_flat())
+    results["geometry_unavailable_reason"] = None
 
 
 class FreeCADExecutor:
@@ -176,10 +205,16 @@ class FreeCADExecutor:
                         doc_path = Path(exec_result.document_path)
                         results["document_path"] = str(doc_path)
 
-                        # Extract state
                         if self.state_extractor:
                             state = self.state_extractor.extract_state(doc_path)
                             results["state"] = state
+                            _attach_geometry_to_results(results, state)
+                        else:
+                            _attach_geometry_to_results(
+                                results,
+                                None,
+                                "state extractor not configured",
+                            )
 
                         # Export to multiple formats
                         if self.export_formats:
@@ -193,6 +228,13 @@ class FreeCADExecutor:
                                 for fmt, path in exports.items()
                             }
 
+                    else:
+                        _attach_geometry_to_results(
+                            results,
+                            None,
+                            "no document path after successful headless execution",
+                        )
+
                     logger.info(
                         "Headless execution successful",
                         objects=len(exec_result.created_objects),
@@ -203,6 +245,11 @@ class FreeCADExecutor:
                     results["success"] = False
                     results["failed_count"] = len(scripts)
                     results["errors"].append(exec_result.error or "Unknown error")
+                    _attach_geometry_to_results(
+                        results,
+                        None,
+                        exec_result.error or "headless execution failed",
+                    )
                     logger.error("Headless execution failed", error=exec_result.error)
 
             else:
@@ -223,6 +270,12 @@ class FreeCADExecutor:
                     if exec_result.document_path:
                         results["document_path"] = str(exec_result.document_path)
 
+                    _attach_geometry_to_results(
+                        results,
+                        None,
+                        "sandbox execution does not populate geometry metrics",
+                    )
+
                     logger.info(
                         "Sandbox execution successful",
                         objects=len(exec_result.created_objects),
@@ -233,12 +286,18 @@ class FreeCADExecutor:
                     results["success"] = False
                     results["failed_count"] = len(scripts)
                     results["errors"].append(exec_result.error or "Unknown error")
+                    _attach_geometry_to_results(
+                        results,
+                        None,
+                        exec_result.error or "sandbox execution failed",
+                    )
                     logger.error("Sandbox execution failed", error=exec_result.error)
 
         except Exception as e:
             results["success"] = False
             results["failed_count"] = len(scripts)
             results["errors"].append(str(e))
+            _attach_geometry_to_results(results, None, str(e))
             logger.error("Execution exception", error=str(e), exc_info=True)
 
         return results

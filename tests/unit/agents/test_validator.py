@@ -162,6 +162,14 @@ doc.recompute()
             "is_manifold": True,
             "has_invalid_faces": False,
             "has_self_intersections": False,
+            "state": {
+                "success": True,
+                "objects": [
+                    {"type": "Part::Box", "name": "Box"},
+                    {"type": "Part::Cylinder", "name": "Cylinder"},
+                    {"type": "Part::Cut", "name": "Cut"},
+                ],
+            },
         }
 
     @pytest.fixture
@@ -230,6 +238,14 @@ doc.recompute()
             "is_manifold": True,
             "has_invalid_faces": True,  # Has some geometric issues
             "has_self_intersections": False,
+            "state": {
+                "success": True,
+                "objects": [
+                    {"type": "Part::Box", "name": "Box"},
+                    {"type": "Part::Cylinder", "name": "Cylinder"},
+                    {"type": "Part::Cut", "name": "Cut"},
+                ],
+            },
         }
 
         # Lower quality review
@@ -391,6 +407,42 @@ class TestValidatorAgentGeometric:
         assert not geo_validation.is_valid
         assert "Invalid volume" in str(geo_validation.issues)
 
+    def test_validate_geometry_nested_geometry_key(self, validator, simple_task_graph):
+        """Validator reads canonical ``geometry`` from execution_result."""
+        execution_result = {
+            "success": True,
+            "geometry": {
+                "feedback_version": "1",
+                "object_count": 1,
+                "total_volume_mm3": 125.0,
+                "bounding_box": {"length": 5.0, "width": 5.0, "height": 5.0},
+                "is_manifold": True,
+                "has_invalid_faces": False,
+                "has_self_intersections": False,
+            },
+        }
+        geo = validator._validate_geometry(execution_result, simple_task_graph)
+        assert geo.is_valid
+        assert geo.body_count == 1
+        assert geo.total_volume == 125.0
+        assert geo.bounding_box["length"] == 5.0
+
+    def test_validate_geometry_success_missing_volume_info(
+        self, validator, simple_task_graph
+    ):
+        """Successful run without measured volume should not assume volume is zero."""
+        execution_result = {
+            "success": True,
+            "object_count": 1,
+            "geometry_unavailable_reason": "sandbox execution",
+        }
+        geo = validator._validate_geometry(execution_result, simple_task_graph)
+        assert geo.total_volume is None
+        assert any("Geometry metrics unavailable" in i for i in geo.issues)
+
+    def test_execution_error_message_joins_list(self, validator):
+        assert validator._execution_error_message({"error": ["a", "b"]}) == "a; b"
+
     def test_calculate_geometric_score(self, validator):
         """Test geometric score calculation."""
         # Perfect geometry
@@ -453,7 +505,19 @@ class TestValidatorAgentSemantic:
             "t3": "cut = doc.addObject('Part::Cut', 'Cut')",
         }
 
-        semantic = validator._validate_semantics(request, graph, scripts)
+        execution = {
+            "success": True,
+            "bounding_box": {"length": 10.0, "width": 10.0, "height": 10.0},
+            "state": {
+                "success": True,
+                "objects": [
+                    {"type": "Part::Box", "name": "Box"},
+                    {"type": "Part::Cylinder", "name": "Cyl"},
+                    {"type": "Part::Cut", "name": "Cut"},
+                ],
+            },
+        }
+        semantic = validator._validate_semantics(request, graph, scripts, execution)
 
         assert semantic.is_valid
         assert semantic.confidence_score >= 0.9
@@ -488,11 +552,94 @@ class TestValidatorAgentSemantic:
             "t2": "# No fillet code generated",  # Missing fillet
         }
 
-        semantic = validator._validate_semantics(request, graph, scripts)
+        semantic = validator._validate_semantics(request, graph, scripts, None)
 
         # Should detect the issue
         assert len(semantic.issues) > 0
         assert semantic.confidence_score < 1.0
+
+    def test_semantic_wrong_bbox_vs_planned_dimensions(self, validator):
+        """Planned box 10mm but geometry bbox much larger should fail dimension check."""
+        request = DesignRequest(user_prompt="Create a box")
+        graph = TaskGraph(request_id=uuid4())
+        graph.add_task(
+            TaskNode(
+                task_id="t1",
+                operation_type="create_box",
+                description="Box",
+                parameters={"length": 10.0, "width": 10.0, "height": 10.0},
+            )
+        )
+        scripts = {"t1": "box = doc.addObject('Part::Box', 'Box')"}
+        execution = {
+            "success": True,
+            "bounding_box": {"length": 100.0, "width": 100.0, "height": 100.0},
+            "state": {
+                "success": True,
+                "objects": [{"type": "Part::Box", "name": "Box"}],
+            },
+        }
+        semantic = validator._validate_semantics(request, graph, scripts, execution)
+        assert any("mismatch" in i.lower() for i in semantic.issues)
+        assert semantic.confidence_score < 0.6
+
+    def test_semantic_missing_boolean_ignores_script_only_when_state_present(
+        self, validator
+    ):
+        """State without Part::Cut should fail boolean requirement despite 'Cut' in code."""
+        request = DesignRequest(user_prompt="Cut a hole")
+        graph = TaskGraph(request_id=uuid4())
+        graph.add_task(
+            TaskNode(
+                task_id="t1",
+                operation_type="create_box",
+                description="Base",
+                parameters={},
+            )
+        )
+        graph.add_task(
+            TaskNode(
+                task_id="t2",
+                operation_type="boolean_cut",
+                description="Hole",
+                parameters={},
+            )
+        )
+        scripts = {
+            "t1": "box = doc.addObject('Part::Box', 'Box')",
+            "t2": "# fake: doc.addObject('Part::Cut' in comment only",
+        }
+        execution = {
+            "success": True,
+            "state": {
+                "success": True,
+                "objects": [{"type": "Part::Box", "name": "Box"}],
+            },
+        }
+        semantic = validator._validate_semantics(request, graph, scripts, execution)
+        assert "boolean_cut" in semantic.requirements_missing
+        assert semantic.confidence_score < 0.6
+
+    def test_semantic_data_gap_when_no_bbox_but_dimensions_planned(self, validator):
+        """Explicit box dims without bbox must not claim dimensional pass."""
+        request = DesignRequest(user_prompt="10x10x10 mm cube")
+        graph = TaskGraph(request_id=uuid4())
+        graph.add_task(
+            TaskNode(
+                task_id="t1",
+                operation_type="create_box",
+                description="Box",
+                parameters={"length": 10.0, "width": 10.0, "height": 10.0},
+            )
+        )
+        scripts = {"t1": "Part.makeBox(10,10,10)"}
+        execution = {
+            "success": True,
+            "state": {"success": True, "objects": [{"type": "Part::Box", "name": "B"}]},
+        }
+        semantic = validator._validate_semantics(request, graph, scripts, execution)
+        assert any("bounding box" in g.lower() for g in semantic.data_gaps)
+        assert any("unknown" in n for n in semantic.structured_notes)
 
 
 class TestValidatorAgentHelpers:

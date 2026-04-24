@@ -11,7 +11,8 @@ Supports multiple installation types:
 Path resolution order:
 1. FREECAD_PATH environment variable
 2. config.yaml configuration
-3. Auto-detection from common install locations
+3. System install paths (distro layout)
+4. AppImage heuristic search (e.g. ~/Downloads)
 """
 
 import logging
@@ -85,8 +86,8 @@ class FreeCADPathResolver:
         paths = (
             self._from_environment()
             or self._from_config()
-            or self._from_appimage()
             or self._from_system_install()
+            or self._from_appimage()
         )
 
         if not paths:

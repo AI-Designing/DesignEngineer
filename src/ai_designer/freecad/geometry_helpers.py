@@ -5,6 +5,12 @@ Pure geometry-parsing helpers extracted from StateAwareCommandProcessor.
 
 These functions accept strings/dicts and return dicts. They do NOT call any
 FreeCAD API directly (API calls still live in the methods that use these).
+
+Legacy routing contract (Track 9):
+    ``analyze_geometry_requirements`` is a **fast pre-parser**, not geometric
+    reasoning. When ``parse_confidence`` is ``"none"`` or ``needs_llm_geometry``
+    is true, callers must **escalate** to LLM-based decomposition (or the
+    canonical agent planner path), not guess sketch profiles from bare numbers.
 """
 
 import re
@@ -20,7 +26,10 @@ def analyze_geometry_requirements(nl_command: str) -> Dict[str, Any]:
         nl_command: E.g. ``"Create a 50mm diameter cylinder that is 100mm tall"``
 
     Returns:
-        Dict with keys: ``shape``, ``operation``, ``plane``, ``dimensions``.
+        Dict with keys ``shape``, ``operation``, ``plane``, ``dimensions``,
+        plus ``parse_confidence`` (``"high"`` | ``"none"``) and
+        ``needs_llm_geometry`` (bool). Callers should escalate to LLM when
+        ``needs_llm_geometry`` is true or ``parse_confidence`` is ``"none"``.
     """
     geometry: Dict[str, Any] = {
         "shape": "unknown",
@@ -31,7 +40,7 @@ def analyze_geometry_requirements(nl_command: str) -> Dict[str, Any]:
 
     nl_lower = nl_command.lower()
 
-    # Identify shape type
+    # Identify shape type from keywords (narrow legacy surface).
     if "cylinder" in nl_lower:
         geometry["shape"] = "circle"
         geometry["operation"] = "pad"
@@ -54,16 +63,30 @@ def analyze_geometry_requirements(nl_command: str) -> Dict[str, Any]:
     if height_match:
         geometry["dimensions"]["height"] = float(height_match.group(1))
 
-    # Fallback: extract any bare mm values
+    # Infer circle profile when diameter is explicit but "cylinder" was omitted.
+    if geometry["shape"] == "unknown" and (
+        "diameter" in geometry["dimensions"] or "radius" in geometry["dimensions"]
+    ):
+        geometry["shape"] = "circle"
+        geometry["operation"] = "pad"
+
+    # Fallback: bare mm values only when shape is already known (never invent
+    # rectangle/circle from arbitrary numbers when shape is still unknown).
     if not geometry["dimensions"]:
         all_dims = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*mm", nl_command)]
-        if len(all_dims) >= 2:
-            if geometry["shape"] == "circle":
-                geometry["dimensions"]["radius"] = all_dims[0] / 2
-                geometry["dimensions"]["height"] = all_dims[1]
-            else:
-                geometry["dimensions"]["width"] = all_dims[0]
-                geometry["dimensions"]["height"] = all_dims[1]
+        if len(all_dims) >= 2 and geometry["shape"] == "circle":
+            geometry["dimensions"]["radius"] = all_dims[0] / 2
+            geometry["dimensions"]["height"] = all_dims[1]
+        elif len(all_dims) >= 2 and geometry["shape"] == "rectangle":
+            geometry["dimensions"]["width"] = all_dims[0]
+            geometry["dimensions"]["height"] = all_dims[1]
+
+    if geometry["shape"] == "unknown":
+        geometry["parse_confidence"] = "none"
+        geometry["needs_llm_geometry"] = True
+    else:
+        geometry["parse_confidence"] = "high"
+        geometry["needs_llm_geometry"] = False
 
     return geometry
 

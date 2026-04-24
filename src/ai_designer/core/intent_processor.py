@@ -1,12 +1,16 @@
 """
 Intent Processing Layer
 Processes user input and determines the appropriate action based on current state
+
+Legacy routing contract (Track 9):
+    Regex buckets here are a **shallow pre-filter** only. When multiple intents
+    match with similar scores (``ambiguous_intent``), callers must prefer LLM
+    handling rather than assuming the top regex bucket is correct.
 """
 
-import json
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 class IntentProcessor:
@@ -103,6 +107,7 @@ class IntentProcessor:
             "context": context_analysis,
             "action_plan": action_plan,
             "requires_llm": action_plan["requires_llm"],
+            "ambiguous_intent": intent_classification.get("ambiguous_intent", False),
             "state_snapshot": current_state,
         }
 
@@ -155,14 +160,48 @@ class IntentProcessor:
             max_score = intent_scores[best_intent]["score"]
             confidence = min(max_score / len(self.intent_patterns[best_intent]), 1.0)
 
+            ambiguous_intent = self._intent_ambiguous(intent_scores, max_score)
+            if ambiguous_intent:
+                confidence = min(confidence, 0.5)
+
             return {
                 "type": best_intent,
                 "confidence": confidence,
                 "all_scores": intent_scores,
+                "ambiguous_intent": ambiguous_intent,
             }
 
         # Fallback to general intent
-        return {"type": "general_command", "confidence": 0.5, "all_scores": {}}
+        return {
+            "type": "general_command",
+            "confidence": 0.5,
+            "all_scores": {},
+            "ambiguous_intent": False,
+        }
+
+    def _intent_ambiguous(
+        self, intent_scores: Dict[str, Dict[str, Any]], max_score: int
+    ) -> bool:
+        """True when regex classification is unreliable (ties or create vs query)."""
+        if "create_object" in intent_scores and "query_info" in intent_scores:
+            c = intent_scores["create_object"]["score"]
+            q = intent_scores["query_info"]["score"]
+            if c >= 1 and q >= 1:
+                return True
+
+        tied = [k for k, v in intent_scores.items() if v["score"] == max_score]
+        if len(tied) > 1:
+            return True
+
+        sorted_by_score = sorted(
+            intent_scores.items(), key=lambda x: x[1]["score"], reverse=True
+        )
+        if len(sorted_by_score) >= 2:
+            second_score = sorted_by_score[1][1]["score"]
+            if max_score - second_score <= 1 and max_score <= 2:
+                return True
+
+        return False
 
     def _analyze_context(
         self, user_input: str, current_state: Dict[str, Any]
@@ -263,6 +302,9 @@ class IntentProcessor:
 
         if not context["has_active_document"] and intent_type != "analyze_state":
             action_plan["prerequisites"].append("ensure_active_document")
+
+        if intent.get("ambiguous_intent"):
+            action_plan["requires_llm"] = True
 
         return action_plan
 

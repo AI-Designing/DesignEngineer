@@ -184,6 +184,7 @@ def setup_test_environment():
                     "status": "success",
                     "total_steps": len(sorted_steps),
                     "completed_steps": len(sorted_steps),
+                    "skipped_steps": 0,
                     "failed_steps": 0,
                     "execution_time": len(sorted_steps) * 0.5,
                     "step_results": step_results,

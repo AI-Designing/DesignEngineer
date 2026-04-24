@@ -67,7 +67,6 @@ def _ensure_xvfb() -> str:
 
 
 def _stop_xvfb():
-    global _xvfb_process
     if _xvfb_process and _xvfb_process.poll() is None:
         _xvfb_process.terminate()
 
@@ -123,10 +122,38 @@ print("SUCCESS: FreeCAD connection established")
 """
         return self._execute_via_subprocess(test_script)
 
-    def execute_command(self, command, save_path=None):
+    def execute_command(self, command, save_path=None, document_path=None):
         """Execute a FreeCAD command/script, optionally saving the document
-        in the same subprocess so state is preserved."""
+        in the same subprocess so state is preserved.
+
+        Args:
+            command: FreeCAD Python body (indented by the subprocess wrapper).
+            save_path: If set, document is saved inside the same subprocess run.
+            document_path: If set, load this ``.FCStd`` checkpoint before running
+                ``command`` (subprocess or in-process). Required for multi-step
+                subprocess workflows where each step is a separate process.
+        """
         if FreeCAD and self.connection:
+            if document_path:
+                abs_p = os.path.abspath(os.path.expanduser(document_path))
+                if not os.path.isfile(abs_p):
+                    return {
+                        "status": "error",
+                        "message": f"Checkpoint document not found: {abs_p}",
+                    }
+                try:
+                    doc = FreeCAD.openDocument(abs_p)
+                    if doc is None:
+                        return {
+                            "status": "error",
+                            "message": f"FreeCAD failed to open document: {abs_p}",
+                        }
+                    self.document = doc
+                except Exception as e:
+                    return {
+                        "status": "error",
+                        "message": f"Failed to open checkpoint document: {e}",
+                    }
             result = self._execute_direct(command)
             # Save directly when FreeCAD is in-process
             if save_path and result.get("status") == "success":
@@ -135,7 +162,9 @@ print("SUCCESS: FreeCAD connection established")
                     result["saved_path"] = save_result.get("saved_path", save_path)
             return result
         else:
-            return self._execute_via_subprocess(command, save_path=save_path)
+            return self._execute_via_subprocess(
+                command, save_path=save_path, document_path=document_path
+            )
 
     def _execute_direct(self, command):
         """Execute command using safe sandbox (no direct exec())"""
@@ -186,7 +215,7 @@ print("SUCCESS: FreeCAD connection established")
         except Exception as e:
             return {"status": "error", "message": f"Failed to execute command: {e}"}
 
-    def _execute_via_subprocess(self, command, save_path=None):
+    def _execute_via_subprocess(self, command, save_path=None, document_path=None):
         """Execute command via FreeCAD AppImage in console mode (-c).
 
         Uses -c (console/headless) mode so FreeCAD never opens a GUI window,
@@ -196,23 +225,55 @@ print("SUCCESS: FreeCAD connection established")
 
         When save_path is provided the document is saved inside the same
         subprocess so no state is lost between calls.
+
+        When document_path is provided, that ``.FCStd`` is opened before user
+        code runs so multi-step workflows can chain across subprocess boundaries.
         """
+        save_path_abs = (
+            os.path.abspath(os.path.expanduser(save_path)) if save_path else None
+        )
+        doc_path_abs = (
+            os.path.abspath(os.path.expanduser(document_path))
+            if document_path
+            else None
+        )
+
         # Console mode doesn't need a display, but we set DISPLAY as a fallback
         # in case any FreeCAD module tries to probe it during import.
         display = _ensure_xvfb()
         # Build optional save block (4-space indented to match the try block)
-        if save_path:
+        if save_path_abs:
             _save_block = f"""
     # Auto-save within the same subprocess so state is preserved
     import os as _os
-    _save_dir = _os.path.dirname(\"{save_path}\")
+    _save_dir = _os.path.dirname({repr(save_path_abs)})
     if _save_dir:
         _os.makedirs(_save_dir, exist_ok=True)
-    doc.saveAs(\"{save_path}\")
-    print(f\"SAVED_TO: {save_path}\")
+    doc.saveAs({repr(save_path_abs)})
+    print("SAVED_TO: " + {repr(save_path_abs)})
 """
         else:
             _save_block = ""
+
+        if doc_path_abs:
+            _doc_init = f"""
+    import os as _os
+    _checkpoint = {repr(doc_path_abs)}
+    if not _os.path.isfile(_checkpoint):
+        raise FileNotFoundError("Checkpoint document not found: " + _checkpoint)
+    doc = FreeCAD.openDocument(_checkpoint)
+    if doc is None:
+        raise RuntimeError("FreeCAD.openDocument returned None for: " + _checkpoint)
+    FreeCAD.setActiveDocument(doc.Name)
+"""
+        else:
+            _doc_init = """
+    # Create or get document (fresh process → usually new document)
+    if not hasattr(FreeCAD, 'ActiveDocument') or FreeCAD.ActiveDocument is None:
+        doc = FreeCAD.newDocument("AutomationDoc")
+    else:
+        doc = FreeCAD.ActiveDocument
+"""
 
         # Indent every non-empty line of the command to 4 spaces so it sits
         # correctly inside the try block in the generated script.
@@ -236,13 +297,7 @@ try:
     import FreeCAD as App
     import Part
     import Mesh
-
-    # Create or get document
-    if not hasattr(FreeCAD, 'ActiveDocument') or FreeCAD.ActiveDocument is None:
-        doc = FreeCAD.newDocument("AutomationDoc")
-    else:
-        doc = FreeCAD.ActiveDocument
-
+{_doc_init}
     # Execute user command
 {indented_command}
 
@@ -286,11 +341,18 @@ os._exit(0)
             # Success = sentinel file written by the script (stdout is empty in GUI mode)
             if os.path.exists(sentinel_path):
                 os.unlink(sentinel_path)
-                return {
+                out = {
                     "status": "success",
-                    "message": "Command executed successfully",
+                    "message": (result.stdout or "").strip()
+                    or "Command executed successfully",
                     "command": command,
+                    "stdout": result.stdout or "",
+                    "stderr": result.stderr or "",
                 }
+                if save_path_abs:
+                    out["saved_path"] = save_path_abs
+                    self.last_saved_document = save_path_abs
+                return out
             else:
                 # Collect any error output for diagnostics
                 err_msg = (
@@ -326,8 +388,12 @@ os._exit(0)
         except Exception as e:
             return {"status": "error", "message": f"Script execution failed: {e}"}
 
-    def get_document_objects(self):
-        """Get all objects in the current document"""
+    def get_document_objects(self, document_path=None):
+        """Get all objects in the current document.
+
+        In subprocess mode, ``document_path`` may point to a saved ``.FCStd``
+        so state reflects that file instead of an empty new document.
+        """
         if FreeCAD and self.document:
             return [obj.Name for obj in self.document.Objects]
 
@@ -336,17 +402,22 @@ os._exit(0)
 for obj in doc.Objects:
     print(f"OBJECT: {obj.Name}")
 """
-        result = self._execute_via_subprocess(command)
+        result = self._execute_via_subprocess(command, document_path=document_path)
         if result["status"] == "success":
             objects = []
-            for line in result["message"].split("\n"):
+            blob = result.get("stdout") or result.get("message") or ""
+            for line in blob.split("\n"):
                 if line.startswith("OBJECT: "):
                     objects.append(line.replace("OBJECT: ", "").strip())
             return objects
         return []
 
-    def get_document_state(self):
-        """Get current state of the FreeCAD document"""
+    def get_document_state(self, document_path=None):
+        """Get current state of the FreeCAD document.
+
+        When running headless via subprocess, pass ``document_path`` to read
+        state from a checkpoint ``.FCStd`` (multi-step workflows).
+        """
         if FreeCAD and self.document:
             objects_info = []
             for obj in self.document.Objects:
@@ -369,9 +440,10 @@ state = {
 }
 print(f"STATE: {json.dumps(state)}")
 """
-        result = self._execute_via_subprocess(command)
+        result = self._execute_via_subprocess(command, document_path=document_path)
         if result["status"] == "success":
-            for line in result["message"].split("\n"):
+            blob = result.get("stdout") or result.get("message") or ""
+            for line in blob.split("\n"):
                 if line.startswith("STATE: "):
                     try:
                         return json.loads(line.replace("STATE: ", ""))

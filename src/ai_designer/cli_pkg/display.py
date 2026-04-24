@@ -26,7 +26,13 @@ def display_workflow_results(result: Dict[str, Any], original_command: str) -> N
 
     print(f"\n📋 Workflow Results for: '{original_command[:60]}'")
     print("=" * 60)
-    print(f"Status: {'✅' if status == 'success' else '❌'} {status.upper()}")
+    if status == "success":
+        status_icon = "✅"
+    elif status == "error":
+        status_icon = "❌"
+    else:
+        status_icon = "⚠️"
+    print(f"Status: {status_icon} {status.upper()}")
     if message:
         print(f"Message: {message}")
 

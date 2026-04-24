@@ -1,0 +1,107 @@
+# CAD benchmark corpus. script_key resolves in order:
+#   tests/benchmarks/golden_scripts.py (Part solids, FC 1.x–safe)
+#   tests/fixtures/sample_scripts.py (negative / legacy PartDesign cases)
+#
+# Run: make test-freecad  (needs freecadcmd / FreeCADCmd or FREECAD_PATH)
+
+cases:
+  - id: partdesign_box_10mm
+    tier: simple
+    script_key: solid_box_10mm
+    expect_success: true
+    criteria:
+      min_object_count: 1
+      max_recompute_errors: 0
+
+  - id: partdesign_cylinder_pad
+    tier: simple
+    script_key: solid_cylinder_pad
+    expect_success: true
+    criteria:
+      min_object_count: 1
+      max_recompute_errors: 0
+
+  - id: partdesign_l_bracket
+    tier: medium
+    script_key: solid_l_bracket_proxy
+    expect_success: true
+    criteria:
+      min_object_count: 1
+      max_recompute_errors: 0
+
+  - id: partdesign_box_with_through_hole
+    tier: medium
+    script_key: solid_block_with_through_hole
+    description: "Golden non-trivial case — Part boolean through-hole"
+    expect_success: true
+    criteria:
+      min_object_count: 1
+      max_recompute_errors: 0
+
+  - id: intent_simple_cube_prompt
+    tier: simple
+    script_key: solid_box_10mm
+    notes: "Same geometry as partdesign_box_10mm; natural-language cube intent proxy"
+    expect_success: true
+    criteria:
+      min_object_count: 1
+      max_recompute_errors: 0
+
+  - id: intent_mounting_block_with_hole
+    tier: medium
+    script_key: solid_block_with_through_hole
+    notes: "Mounting-plate style intent proxy"
+    expect_success: true
+    criteria:
+      min_object_count: 1
+      max_recompute_errors: 0
+
+  - id: negative_invalid_syntax
+    tier: hard
+    script_key: invalid_syntax
+    expect_success: false
+    criteria: {}
+
+  - id: negative_incomplete_script
+    tier: hard
+    script_key: incomplete
+    expect_success: false
+    notes: "Fragment is invalid inside runner template (standalone newDocument); expect failure"
+    criteria: {}
+
+  - id: regression_cylinder_repeat
+    tier: simple
+    script_key: solid_cylinder_pad
+    notes: "Repeat run for stability sampling"
+    expect_success: true
+    criteria:
+      min_object_count: 1
+      max_recompute_errors: 0
+
+  - id: regression_l_bracket_repeat
+    tier: medium
+    script_key: solid_l_bracket_proxy
+    expect_success: true
+    criteria:
+      min_object_count: 1
+      max_recompute_errors: 0
+
+  - id: placeholder_assembly_multi_body
+    tier: hard
+    skip: true
+    skip_reason: "No golden assembly script yet (Tracks 3–4)"
+
+  - id: placeholder_loft
+    tier: hard
+    skip: true
+    skip_reason: "Loft golden pending generator/executor support"
+
+  - id: placeholder_shell
+    tier: hard
+    skip: true
+    skip_reason: "Shell golden pending PartDesign shell support"
+
+  - id: placeholder_linear_pattern
+    tier: medium
+    skip: true
+    skip_reason: "Linear pattern golden pending workflow_orchestrator / generator"
