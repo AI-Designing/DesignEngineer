@@ -67,7 +67,6 @@ def _ensure_xvfb() -> str:
 
 
 def _stop_xvfb():
-    global _xvfb_process
     if _xvfb_process and _xvfb_process.poll() is None:
         _xvfb_process.terminate()
 

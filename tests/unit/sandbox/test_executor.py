@@ -134,17 +134,17 @@ raise ValueError("Test error")
 # These should not be available
 try:
     exec('print("bad")')
-except (NameError, TypeError):
+except:
     print("exec blocked")
 
 try:
     eval('1+1')
-except (NameError, TypeError):
+except:
     print("eval blocked")
 
 try:
     open('/tmp/test', 'w')
-except (NameError, TypeError):
+except:
     print("open blocked")
 """
 

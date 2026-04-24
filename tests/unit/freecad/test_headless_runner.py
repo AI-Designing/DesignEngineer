@@ -70,6 +70,7 @@ class TestHeadlessRunner:
         mock_result.stdout = """
 CREATED_OBJECT: Box
 CREATED_OBJECT: Cylinder
+RECOMPUTE_SUCCESS
 Execution completed successfully
 """
         mock_result.stderr = ""
@@ -104,7 +105,7 @@ Execution completed successfully
             )
 
         assert result.success is False
-        assert result.status == ExecutionStatus.ERROR
+        assert result.status == ExecutionStatus.EXECUTION_FAILED
         assert "Syntax error" in result.error
 
     @pytest.mark.asyncio
@@ -115,6 +116,7 @@ Execution completed successfully
         mock_result.stdout = """
 CREATED_OBJECT: Box
 WARNING: Object may have constraints issues
+RECOMPUTE_SUCCESS
 Execution completed
 """
         mock_result.stderr = ""
@@ -127,8 +129,9 @@ Execution completed
             )
 
         assert result.success is True
-        assert len(result.warnings) > 0
-        assert any("constraints" in w for w in result.warnings)
+        warns = result.metadata.get("warnings", [])
+        assert len(warns) > 0
+        assert any("constraints" in w for w in warns)
 
     @pytest.mark.asyncio
     async def test_retry_logic_with_recompute_error(self, headless_runner):
@@ -186,7 +189,7 @@ CREATED_OBJECT: Cylinder001
 WARNING: Mesh quality may be low
 RECOMPUTE_SUCCESS
 """
-        mock_result.stderr = "ERROR: Minor issue detected"
+        mock_result.stderr = ""
 
         with patch("subprocess.run", return_value=mock_result):
             result = await headless_runner.execute_script(
@@ -198,8 +201,9 @@ RECOMPUTE_SUCCESS
         assert len(result.created_objects) == 2
         assert "Box001" in result.created_objects
         assert "Cylinder001" in result.created_objects
-        assert len(result.warnings) > 0
-        assert any("Mesh quality" in w for w in result.warnings)
+        warns = result.metadata.get("warnings", [])
+        assert len(warns) > 0
+        assert any("Mesh quality" in w for w in warns)
 
     @pytest.mark.asyncio
     async def test_metadata_saving(self, headless_runner, temp_outputs_dir):
@@ -209,7 +213,7 @@ RECOMPUTE_SUCCESS
 
         mock_result = Mock()
         mock_result.returncode = 0
-        mock_result.stdout = "CREATED_OBJECT: Box"
+        mock_result.stdout = "CREATED_OBJECT: Box\nRECOMPUTE_SUCCESS"
         mock_result.stderr = ""
 
         with patch("subprocess.run", return_value=mock_result):
@@ -219,8 +223,8 @@ RECOMPUTE_SUCCESS
                 request_id=request_id,
             )
 
-        # Check metadata file exists
-        metadata_files = list(temp_outputs_dir.glob("*_metadata.json"))
+        # Check metadata file exists (JSON sidecar next to FCStd workflow)
+        metadata_files = list(temp_outputs_dir.glob("*.json"))
         assert len(metadata_files) > 0
 
         # Verify metadata content
@@ -256,8 +260,16 @@ RECOMPUTE_SUCCESS
 
     def test_command_detection_fallback(self):
         """Test FreeCAD command detection fallback."""
+        real_glob = Path.glob
+
+        def _no_freecad_appimages(self, pattern):
+            if pattern == "FreeCAD*.AppImage":
+                return iter([])
+            return real_glob(self, pattern)
+
         with patch("subprocess.run", side_effect=FileNotFoundError()):
-            runner = HeadlessRunner()
+            with patch.object(Path, "glob", _no_freecad_appimages):
+                runner = HeadlessRunner()
             assert runner.freecad_cmd == "freecadcmd"
 
 

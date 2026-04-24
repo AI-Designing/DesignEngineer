@@ -75,7 +75,7 @@ print("Skipped validation")
             "FreeCAD",
             (),
             {
-                "Vector": lambda x, y, z: f"Vector({x}, {y}, {z})",
+                "Vector": staticmethod(lambda x, y, z: f"Vector({x}, {y}, {z})"),
                 "Console": type("Console", (), {"PrintMessage": print})(),
             },
         )()

@@ -157,8 +157,8 @@ import pandas as pd
         """Test quick validation method"""
         validator = ASTValidator()
 
-        good_script = "import FreeCAD\\nprint('hello')"
-        bad_script = "import os\\nos.system('rm')"
+        good_script = "import FreeCAD\nprint('hello')"
+        bad_script = "import os\nos.system('rm')"
 
         assert validator.validate_quick(good_script) is True
         assert validator.validate_quick(bad_script) is False

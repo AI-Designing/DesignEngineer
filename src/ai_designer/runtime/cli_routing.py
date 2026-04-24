@@ -14,7 +14,7 @@ from typing import Literal, Optional, Sequence
 
 # Redis defaults (match ``__main__`` env convention)
 _REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-_REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+_REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 RuntimeRoute = Literal["canonical", "legacy_cli", "legacy_enhanced"]
 
@@ -29,8 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--legacy-cli",
         action="store_true",
         help=(
-            "Use the legacy FreeCAD CLI (rich REPL, command executor, WebSocket hooks). "
-            "Prefer the default agent pipeline for new work; see docs/ENTRYPOINTS.md."
+            "Legacy FreeCAD CLI (REPL, command executor, WebSockets). "
+            "Prefer the default agent pipeline; see docs/ENTRYPOINTS.md."
         ),
     )
     parser.add_argument(
@@ -125,7 +125,7 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 
 def warn_deprecated_enhanced_flag_if_needed(args: argparse.Namespace) -> None:
-    """Emit ``DeprecationWarning`` when ``--enhanced`` is used without ``--legacy-enhanced``."""
+    """Warn when ``--enhanced`` is used without ``--legacy-enhanced``."""
     if args.enhanced and not args.legacy_enhanced:
         warnings.warn(
             "Flag --enhanced is deprecated; use --legacy-enhanced instead.",

@@ -75,7 +75,7 @@ def build_cli_pipeline_executor(
     Does not use FastAPI globals in ``api.deps``; safe for ``python -m ai_designer``.
 
     Raises:
-        Exception: If ``UnifiedLLMProvider`` cannot be constructed (misconfigured keys, etc.)
+        Exception: If ``UnifiedLLMProvider`` fails (e.g. missing API keys).
     """
     llm_provider = UnifiedLLMProvider()
     planner = PlannerAgent(llm_provider=llm_provider)
