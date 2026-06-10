@@ -67,7 +67,7 @@ class TestHealthEndpoints:
 class TestDesignEndpoints:
     """Tests for design creation and management endpoints."""
 
-    @patch("ai_designer.api.routes.design._process_design")
+    @patch("ai_designer.api.routes.design._process_design_pipeline")
     def test_create_design(self, mock_process, client):
         """Test creating a new design request."""
         request_data = {
@@ -137,7 +137,7 @@ class TestDesignEndpoints:
         data = response.json()
         assert "not found" in data["detail"].lower()
 
-    @patch("ai_designer.api.routes.design._process_design")
+    @patch("ai_designer.api.routes.design._process_design_pipeline")
     @patch("ai_designer.api.routes.design._designs")
     def test_refine_design(self, mock_designs, mock_process, client):
         """Test submitting refinement feedback."""
@@ -225,17 +225,17 @@ class TestDesignEndpoints:
 
 
 class TestProcessDesignIntegration:
-    """Tests for the background processing pipeline."""
+    """Tests for the background LangGraph pipeline task."""
 
     @pytest.mark.asyncio
     async def test_process_design_success(self):
-        """Test successful design processing with mocked orchestrator."""
-        from ai_designer.api.routes.design import _designs, _process_design
+        """Test successful design processing with mocked pipeline executor."""
+        from ai_designer.api.routes.design import _designs, _process_design_pipeline
 
-        request_id = str(uuid4())
+        request_id = uuid4()
         now = datetime.utcnow()
+        key = str(request_id)
 
-        # Create initial state
         initial_state = DesignState(
             request_id=request_id,
             user_prompt="Create a 10x10x10mm cube",
@@ -245,10 +245,8 @@ class TestProcessDesignIntegration:
             created_at=now,
             updated_at=now,
         )
-        _designs[request_id] = initial_state
+        _designs[key] = initial_state
 
-        # Mock orchestrator
-        mock_orchestrator = AsyncMock()
         completed_state = DesignState(
             request_id=request_id,
             user_prompt="Create a 10x10x10mm cube",
@@ -265,45 +263,33 @@ class TestProcessDesignIntegration:
             },
             is_valid=True,
         )
-        mock_orchestrator.execute.return_value = completed_state
+        mock_pipeline = AsyncMock()
+        mock_pipeline.execute.return_value = completed_state
 
-        # Mock executor
-        mock_executor = AsyncMock()
-        mock_executor.execute.return_value = {
-            "success": True,
-            "executed_count": 1,
-            "created_objects": ["Cube001"],
-            "errors": [],
-        }
-
-        # Run processing
-        await _process_design(
+        await _process_design_pipeline(
             request_id=request_id,
-            enable_execution=True,
-            orchestrator=mock_orchestrator,
-            executor=mock_executor,
+            prompt="Create a 10x10x10mm cube",
+            max_iterations=5,
+            pipeline=mock_pipeline,
         )
 
-        # Verify orchestrator was called
-        mock_orchestrator.execute.assert_called_once()
+        mock_pipeline.execute.assert_called_once()
 
-        # Verify state was updated
-        final_state = _designs[request_id]
+        final_state = _designs[key]
         assert final_state.status == ExecutionStatus.COMPLETED
         assert final_state.freecad_script == "# Generated script"
 
-        # Cleanup
-        del _designs[request_id]
+        del _designs[key]
 
     @pytest.mark.asyncio
     async def test_process_design_failure(self):
-        """Test design processing with orchestrator failure."""
-        from ai_designer.api.routes.design import _designs, _process_design
+        """Test design processing when the pipeline raises."""
+        from ai_designer.api.routes.design import _designs, _process_design_pipeline
 
-        request_id = str(uuid4())
+        request_id = uuid4()
         now = datetime.utcnow()
+        key = str(request_id)
 
-        # Create initial state
         initial_state = DesignState(
             request_id=request_id,
             user_prompt="Create invalid design",
@@ -313,29 +299,23 @@ class TestProcessDesignIntegration:
             created_at=now,
             updated_at=now,
         )
-        _designs[request_id] = initial_state
+        _designs[key] = initial_state
 
-        # Mock orchestrator to raise exception
-        mock_orchestrator = AsyncMock()
-        mock_orchestrator.execute.side_effect = Exception("Orchestrator error")
+        mock_pipeline = AsyncMock()
+        mock_pipeline.execute.side_effect = Exception("Pipeline error")
 
-        mock_executor = AsyncMock()
-
-        # Run processing
-        await _process_design(
+        await _process_design_pipeline(
             request_id=request_id,
-            enable_execution=True,
-            orchestrator=mock_orchestrator,
-            executor=mock_executor,
+            prompt="Create invalid design",
+            max_iterations=5,
+            pipeline=mock_pipeline,
         )
 
-        # Verify state was updated with error
-        final_state = _designs[request_id]
+        final_state = _designs[key]
         assert final_state.status == ExecutionStatus.FAILED
-        assert "Orchestrator error" in final_state.error_message
+        assert "Pipeline error" in (final_state.error_message or "")
 
-        # Cleanup
-        del _designs[request_id]
+        del _designs[key]
 
 
 class TestWebSocketEndpoint:
