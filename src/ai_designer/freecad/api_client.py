@@ -8,11 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
-from ..core.sandbox import (
-    SafeScriptExecutor,
-    ScriptExecutionError,
-    ScriptValidationError,
-)
+from ..sandbox import SafeScriptExecutor, ScriptExecutionError, ScriptValidationError
 from .path_resolver import get_freecad_executable, setup_freecad_paths
 
 # Setup FreeCAD paths from environment/config

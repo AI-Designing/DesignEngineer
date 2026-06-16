@@ -18,8 +18,8 @@ from ai_designer.agents.generator import GeneratorAgent
 from ai_designer.agents.orchestrator import OrchestratorAgent
 from ai_designer.agents.planner import PlannerAgent
 from ai_designer.agents.validator import ValidatorAgent
-from ai_designer.core.llm_provider import UnifiedLLMProvider
 from ai_designer.export.exporter import CADExporter
+from ai_designer.llm.provider import UnifiedLLMProvider
 from ai_designer.orchestration.pipeline import PipelineExecutor
 from ai_designer.runtime.pipeline_factory import create_pipeline_executor
 

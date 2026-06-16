@@ -68,8 +68,8 @@ services:
       - ./src:/app/src:ro
       - ./config:/app/config:ro
       - ./outputs:/app/outputs
-      # FreeCAD extracted from AppImage
-      - /home/vansh5632/DesignEng/freecad-extracted/squashfs-root:/opt/freecad:ro
+      # Optional FreeCAD mount — set FREECAD_ROOT on the host (extracted AppImage squashfs-root)
+      - ${FREECAD_ROOT:-./freecad-mount}:/opt/freecad:ro
     devices:
       - /dev/fuse:/dev/fuse
     cap_add:
@@ -80,23 +80,6 @@ services:
       - backend
     profiles:
       - dev
-
-  # ── FreeCAD headless sidecar ───────────────────────────────────────────────
-  freecad:
-    image: freecad/freecad:latest
-    container_name: freecad_sidecar
-    restart: unless-stopped
-    volumes:
-      - ./src:/usr/src/app:ro
-      - freecad_data:/freecad/data
-    working_dir: /usr/src/app
-    command: ["python", "-m", "ai_designer.__main__", "--headless"]
-    environment:
-      - PYTHONPATH=/usr/src/app
-    networks:
-      - backend
-    profiles:
-      - freecad
 
   # ── Redis ─────────────────────────────────────────────────────────────────
   redis:
@@ -144,8 +127,6 @@ networks:
 # ─── Named volumes ────────────────────────────────────────────────────────────
 volumes:
   redis_data:
-    driver: local
-  freecad_data:
     driver: local
   prometheus_data:
     driver: local

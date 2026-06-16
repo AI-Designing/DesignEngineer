@@ -23,6 +23,12 @@ Usage:
 """
 
 from .executor import ScriptExecutor
+from .freecad_execution import (
+    SafeScriptExecutor,
+    ScriptExecutionError,
+    ScriptValidationError,
+    execute_safe_script,
+)
 from .result import ExecutionResult, ExecutionStatus
 from .sandbox import ScriptSandbox
 from .validator import ASTValidator, ValidationResult
@@ -30,6 +36,10 @@ from .validator import ASTValidator, ValidationResult
 __all__ = [
     "ScriptSandbox",
     "ScriptExecutor",
+    "SafeScriptExecutor",
+    "ScriptExecutionError",
+    "ScriptValidationError",
+    "execute_safe_script",
     "ASTValidator",
     "ExecutionResult",
     "ExecutionStatus",

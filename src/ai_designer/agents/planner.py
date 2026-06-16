@@ -27,7 +27,7 @@ from pydantic import ValidationError
 
 from ai_designer.agents.base import BaseAgent
 from ai_designer.agents.prompts.system_prompts import get_planner_system_prompt
-from ai_designer.core.llm_provider import LLMRequest, LLMRole, UnifiedLLMProvider
+from ai_designer.llm.provider import LLMRequest, LLMRole, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType, DesignRequest
 from ai_designer.schemas.planner_plan import parse_and_validate_plan_dict
 from ai_designer.schemas.task_graph import (

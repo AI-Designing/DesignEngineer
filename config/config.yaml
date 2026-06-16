@@ -41,25 +41,6 @@ redis:
 command_timeout: 30
 log_level: "INFO"
 
-# Enhanced Complex Generator Settings
-enhanced_generator:
-  use_deepseek: true
-  quality_targets:
-    geometric_accuracy: 0.9
-    design_consistency: 0.85
-    aesthetic_quality: 0.8
-    manufacturability: 0.9
-    performance_score: 0.85
-
-  pattern_learning:
-    enabled: true
-    max_patterns: 1000
-    similarity_threshold: 0.6
-
-  quality_prediction:
-    enabled: true
-    confidence_threshold: 0.7
-
 # LLM agent model configuration (overrides llm/model_config.py defaults)
 llm_agents:
   planner:

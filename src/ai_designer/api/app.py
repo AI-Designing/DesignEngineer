@@ -199,3 +199,22 @@ def create_app() -> FastAPI:
 
 # Module-level instance for uvicorn: `uvicorn ai_designer.api.app:app`
 app = create_app()
+
+
+def main() -> None:
+    """Console entry point: ``ai-designer-api``."""
+    import uvicorn
+
+    host = os.getenv("HOST", "0.0.0.0")  # nosec B104 — required for container binding
+    port = int(os.getenv("PORT", "8000"))
+    reload = os.getenv("ENV", "production") == "development"
+    uvicorn.run(
+        "ai_designer.api.app:app",
+        host=host,
+        port=port,
+        reload=reload,
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -11,12 +11,12 @@ from typing import Any, Dict, Optional
 from uuid import uuid4
 
 from ai_designer.core.logging_config import get_logger
-from ai_designer.core.sandbox import ExecutionResult, execute_safe_script
 from ai_designer.freecad.headless_runner import HeadlessRunner
 from ai_designer.freecad.state_extractor import (
     StateExtractor,
     geometry_summary_from_state,
 )
+from ai_designer.sandbox import ExecutionResult, execute_safe_script
 
 logger = get_logger(__name__)
 

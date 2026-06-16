@@ -323,7 +323,7 @@ def mock_unified_llm_provider(mock_llm_provider):
 
     Wraps MockLLMProvider to match UnifiedLLMProvider interface.
     """
-    from ai_designer.core.llm_provider import UnifiedLLMProvider
+    from ai_designer.llm.provider import UnifiedLLMProvider
 
     mock_provider = Mock(spec=UnifiedLLMProvider)
     mock_provider.generate = mock_llm_provider.generate

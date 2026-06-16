@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from ai_designer.agents.planner import PlannerAgent
-from ai_designer.core.llm_provider import LLMResponse, UnifiedLLMProvider
+from ai_designer.llm.provider import LLMResponse, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType, DesignRequest
 from ai_designer.schemas.task_graph import TaskGraph, TaskStatus
 

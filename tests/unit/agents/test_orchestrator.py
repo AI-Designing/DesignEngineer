@@ -9,7 +9,7 @@ from ai_designer.agents.generator import GeneratorAgent
 from ai_designer.agents.orchestrator import OrchestratorAgent
 from ai_designer.agents.planner import PlannerAgent
 from ai_designer.agents.validator import ValidatorAgent
-from ai_designer.core.llm_provider import UnifiedLLMProvider
+from ai_designer.llm.provider import UnifiedLLMProvider
 from ai_designer.schemas.design_state import DesignRequest, ExecutionStatus
 from ai_designer.schemas.task_graph import TaskGraph, TaskNode
 from ai_designer.schemas.validation import ValidationResult

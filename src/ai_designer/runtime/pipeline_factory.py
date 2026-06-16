@@ -1,8 +1,7 @@
 """
-Construct LangGraph :class:`~ai_designer.orchestration.pipeline.PipelineExecutor`.
+Construct :class:`~ai_designer.orchestration.pipeline.PipelineExecutor`.
 
-Single place for the ``PipelineExecutor(...)`` call shape so FastAPI deps and
-CLI stay aligned.
+Single place for the ``PipelineExecutor(...)`` call shape so FastAPI deps stay aligned.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from ai_designer.agents.executor import FreeCADExecutor
 from ai_designer.agents.generator import GeneratorAgent
 from ai_designer.agents.planner import PlannerAgent
 from ai_designer.agents.validator import ValidatorAgent
-from ai_designer.core.llm_provider import UnifiedLLMProvider
+from ai_designer.llm.provider import UnifiedLLMProvider
 from ai_designer.orchestration.pipeline import PipelineExecutor
 
 logger = logging.getLogger(__name__)
@@ -64,15 +63,13 @@ def build_default_freecad_executor() -> FreeCADExecutor:
     )
 
 
-def build_cli_pipeline_executor(
+def build_standalone_pipeline_executor(
     *,
     max_iterations: int = 5,
     websocket_callback: Optional[Callable] = None,
 ) -> PipelineExecutor:
     """
-    Build a fresh pipeline for **CLI** use (separate process from uvicorn).
-
-    Does not use FastAPI globals in ``api.deps``; safe for ``python -m ai_designer``.
+    Build a fresh pipeline outside FastAPI global deps (e.g. scripts, tests).
 
     Raises:
         Exception: If ``UnifiedLLMProvider`` fails (e.g. missing API keys).
@@ -90,5 +87,9 @@ def build_cli_pipeline_executor(
         max_iterations=max_iterations,
         websocket_callback=websocket_callback,
     )
-    logger.info("CLI PipelineExecutor initialized (standalone stack)")
+    logger.info("Standalone PipelineExecutor initialized")
     return pipe
+
+
+# Backward-compatible alias (removed CLI runtime)
+build_cli_pipeline_executor = build_standalone_pipeline_executor

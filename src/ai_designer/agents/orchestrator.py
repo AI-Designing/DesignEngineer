@@ -18,8 +18,8 @@ from ai_designer.agents.generator import GeneratorAgent
 from ai_designer.agents.planner import PlannerAgent
 from ai_designer.agents.validator import ValidatorAgent
 from ai_designer.core.exceptions import AIDesignerError
-from ai_designer.core.llm_provider import UnifiedLLMProvider
 from ai_designer.core.logging_config import get_logger
+from ai_designer.llm.provider import UnifiedLLMProvider
 from ai_designer.schemas.design_state import (
     AgentType,
     DesignRequest,

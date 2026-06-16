@@ -12,14 +12,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ai_designer.agents.base import BaseAgent
 from ai_designer.core.exceptions import LLMError
-from ai_designer.core.llm_provider import (
-    LLMMessage,
-    LLMRequest,
-    LLMRole,
-    UnifiedLLMProvider,
-)
 from ai_designer.core.logging_config import get_logger
 from ai_designer.freecad.state_extractor import geometry_summary_from_state
+from ai_designer.llm.provider import LLMMessage, LLMRequest, LLMRole, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType, DesignRequest
 from ai_designer.schemas.execution_feedback import GeometrySummary
 from ai_designer.schemas.task_graph import TaskGraph

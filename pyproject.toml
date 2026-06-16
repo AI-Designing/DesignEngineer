@@ -85,7 +85,7 @@ docs = [
 "Source Code" = "https://github.com/your-username/ai-designing-designengineer"
 
 [project.scripts]
-ai-designer = "ai_designer.__main__:main"
+ai-designer-api = "ai_designer.api.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
