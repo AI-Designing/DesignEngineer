@@ -10,13 +10,8 @@ import json
 from typing import Any, Dict, List, Optional
 
 from ai_designer.agents.base import BaseAgent
-from ai_designer.core.llm_provider import (
-    LLMMessage,
-    LLMRequest,
-    LLMRole,
-    UnifiedLLMProvider,
-)
 from ai_designer.core.logging_config import get_logger
+from ai_designer.llm.provider import LLMMessage, LLMRequest, LLMRole, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType
 from ai_designer.schemas.planner_plan import (
     EXECUTABLE_PLANNER_OPS,

@@ -6,7 +6,6 @@ from typing import Any, Dict, Optional
 
 # Fix relative imports
 try:
-    from ..llm.client import LLMClient
     from .state_aware_processor import StateAwareCommandProcessor
     from .state_manager import FreeCADStateAnalyzer
 except ImportError:
@@ -15,7 +14,6 @@ except ImportError:
     sys.path.insert(0, current_dir)
     from ai_designer.freecad.state_aware_processor import StateAwareCommandProcessor
     from ai_designer.freecad.state_manager import FreeCADStateAnalyzer
-    from ai_designer.llm.client import LLMClient
 
 
 class CommandExecutor:
@@ -39,7 +37,7 @@ class CommandExecutor:
         self.save_counter = 0
         self.last_saved_path = None
         # llm_provider: 'openai' or 'google', llm_api_key: API key for the provider
-        self.llm_client = LLMClient(api_key=llm_api_key, provider=llm_provider)
+        self.llm_client = None  # Legacy NL→code path removed; use API pipeline instead
 
         # Initialize state-aware processor for complex commands
         if state_manager and api_client:

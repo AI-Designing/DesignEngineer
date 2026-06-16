@@ -45,7 +45,7 @@ class SimpleWebSocketMonitor:
 
         except ConnectionRefusedError:
             print("❌ Cannot connect - is the FreeCAD CLI running?")
-            print("💡 Start with: python3 -m ai_designer.cli")
+            print("💡 Start API: uvicorn ai_designer.api.app:app --port 8000")
 
         except Exception as e:
             print(f"❌ Connection error: {e}")

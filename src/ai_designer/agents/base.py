@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from typing import Any, List, Optional
 
 from ai_designer.core.exceptions import LLMError
-from ai_designer.core.llm_provider import UnifiedLLMProvider
+from ai_designer.llm.provider import UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType
 from ai_designer.schemas.llm_schemas import LLMMessage, LLMRequest, LLMResponse, LLMRole
 

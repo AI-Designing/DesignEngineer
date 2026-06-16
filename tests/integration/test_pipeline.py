@@ -76,7 +76,7 @@ def design_request():
 @pytest.fixture
 def sample_task_graph(design_request):
     """Sample task graph."""
-    from ai_designer.schemas.task_graph import TaskNode, TaskPriority
+    from ai_designer.schemas.task_graph import TaskNode
 
     return TaskGraph(
         request_id=design_request.request_id,
@@ -84,8 +84,8 @@ def sample_task_graph(design_request):
             "task_1": TaskNode(
                 task_id="task_1",
                 description="Create cube",
-                priority=TaskPriority.MEDIUM,
-                estimated_duration_minutes=5,
+                operation_type="create_box",
+                parameters={"length": 10, "width": 10, "height": 10},
             )
         },
         edges=[],
@@ -202,8 +202,6 @@ class TestRouting:
             request_id=str(request_id),
             is_valid=True,
             overall_score=0.9,
-            dimensional_scores={},
-            issues=[],
             refinement_suggestions=[],
             should_refine=False,
         )
@@ -221,8 +219,6 @@ class TestRouting:
             request_id=str(request_id),
             is_valid=False,
             overall_score=0.6,
-            dimensional_scores={},
-            issues=[],
             refinement_suggestions=["Improve quality"],
             should_refine=True,
         )
@@ -240,8 +236,6 @@ class TestRouting:
             request_id=str(request_id),
             is_valid=False,
             overall_score=0.3,
-            dimensional_scores={},
-            issues=["Major structural issue"],
             refinement_suggestions=[],
             should_refine=False,
         )
@@ -259,8 +253,6 @@ class TestRouting:
             request_id=str(request_id),
             is_valid=False,
             overall_score=0.1,
-            dimensional_scores={},
-            issues=["Unrecoverable error"],
             refinement_suggestions=[],
             should_refine=False,
         )
@@ -279,8 +271,6 @@ class TestRouting:
             request_id=str(request_id),
             is_valid=False,
             overall_score=0.6,  # Would normally refine
-            dimensional_scores={},
-            issues=[],
             refinement_suggestions=["Improve"],
             should_refine=True,
         )
@@ -354,6 +344,7 @@ class TestPipelineExecution:
             is_valid=True,
             overall_score=0.9,
             should_refine=False,
+            refinement_suggestions=[],
         )
 
         # Create and execute pipeline
@@ -402,6 +393,7 @@ class TestPipelineExecution:
             is_valid=True,
             overall_score=0.9,
             should_refine=False,
+            refinement_suggestions=[],
         )
 
         mock_validator.validate.side_effect = [validation_1, validation_2]

@@ -85,7 +85,7 @@ docs = [
 "Source Code" = "https://github.com/your-username/ai-designing-designengineer"
 
 [project.scripts]
-ai-designer = "ai_designer.__main__:main"
+ai-designer-api = "ai_designer.api.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -123,7 +123,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml -p no:launch_testing -p no:launch_testing_ros_pytest_entrypoint -p no:ament_mypy -p no:ament_copyright -p no:ament_lint -p no:ament_flake8 -p no:ament_pep257 -p no:ament_xmllint"
+addopts = "-v --tb=short --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml -p no:launch_testing -p no:launch_ros -p no:ament_mypy -p no:ament_copyright -p no:ament_lint -p no:ament_flake8 -p no:ament_pep257 -p no:ament_xmllint"
 asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow",

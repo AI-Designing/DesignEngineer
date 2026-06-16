@@ -4,6 +4,7 @@ Integration tests for export API endpoints.
 Tests FastAPI endpoints for design export with multi-format support.
 """
 
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
@@ -13,8 +14,20 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from ai_designer.api.app import create_app
+from ai_designer.api.deps import get_cad_exporter
 from ai_designer.export.exporter import ExportMetadata, ExportResult
 from ai_designer.schemas.design_state import DesignState, ExecutionStatus
+
+
+@contextmanager
+def _cad_exporter_override(test_client: TestClient, mock_exporter: Mock):
+    """Inject a mock CAD exporter (Depends() binds the callable at import time)."""
+    app = test_client.app
+    app.dependency_overrides[get_cad_exporter] = lambda: mock_exporter
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_cad_exporter, None)
 
 
 @pytest.fixture
@@ -123,16 +136,13 @@ class TestExportEndpoint:
         # Mock exporter
         mock_export_result.file_path = step_file
 
-        with patch(
-            "ai_designer.api.routes.design.get_cad_exporter"
-        ) as mock_get_exporter:
-            mock_exporter = Mock()
-            mock_exporter.outputs_dir = tmp_path
-            mock_exporter.export_multiple_formats = AsyncMock(
-                return_value={"step": mock_export_result}
-            )
-            mock_get_exporter.return_value = mock_exporter
+        mock_exporter = Mock()
+        mock_exporter.outputs_dir = tmp_path
+        mock_exporter.export_multiple_formats = AsyncMock(
+            return_value={"step": mock_export_result}
+        )
 
+        with _cad_exporter_override(test_client, mock_exporter):
             response = test_client.get(
                 f"/api/v1/design/{mock_design_state.request_id}/export?formats=step"
             )
@@ -195,16 +205,13 @@ class TestExportEndpoint:
             ),
         )
 
-        with patch(
-            "ai_designer.api.routes.design.get_cad_exporter"
-        ) as mock_get_exporter:
-            mock_exporter = Mock()
-            mock_exporter.outputs_dir = tmp_path
-            mock_exporter.export_multiple_formats = AsyncMock(
-                return_value={"step": step_result, "stl": stl_result}
-            )
-            mock_get_exporter.return_value = mock_exporter
+        mock_exporter = Mock()
+        mock_exporter.outputs_dir = tmp_path
+        mock_exporter.export_multiple_formats = AsyncMock(
+            return_value={"step": step_result, "stl": stl_result}
+        )
 
+        with _cad_exporter_override(test_client, mock_exporter):
             response = test_client.get(
                 f"/api/v1/design/{mock_design_state.request_id}/export?formats=step,stl"
             )
@@ -252,16 +259,13 @@ class TestExportEndpoint:
             cache_hit=True,
         )
 
-        with patch(
-            "ai_designer.api.routes.design.get_cad_exporter"
-        ) as mock_get_exporter:
-            mock_exporter = Mock()
-            mock_exporter.outputs_dir = tmp_path
-            mock_exporter.export_multiple_formats = AsyncMock(
-                return_value={"step": cache_result}
-            )
-            mock_get_exporter.return_value = mock_exporter
+        mock_exporter = Mock()
+        mock_exporter.outputs_dir = tmp_path
+        mock_exporter.export_multiple_formats = AsyncMock(
+            return_value={"step": cache_result}
+        )
 
+        with _cad_exporter_override(test_client, mock_exporter):
             response = test_client.get(
                 f"/api/v1/design/{mock_design_state.request_id}/export?formats=step"
             )
@@ -313,16 +317,13 @@ class TestDownloadEndpoint:
             ),
         )
 
-        with patch(
-            "ai_designer.api.routes.design.get_cad_exporter"
-        ) as mock_get_exporter:
-            mock_exporter = Mock()
-            mock_exporter.outputs_dir = tmp_path
-            mock_exporter.export_multiple_formats = AsyncMock(
-                return_value={"step": export_result}
-            )
-            mock_get_exporter.return_value = mock_exporter
+        mock_exporter = Mock()
+        mock_exporter.outputs_dir = tmp_path
+        mock_exporter.export_multiple_formats = AsyncMock(
+            return_value={"step": export_result}
+        )
 
+        with _cad_exporter_override(test_client, mock_exporter):
             response = test_client.get(
                 f"/api/v1/design/{mock_design_state.request_id}/download/step"
             )
@@ -349,16 +350,13 @@ class TestDownloadEndpoint:
         # Mock export failure
         fail_result = ExportResult(success=False, format="step", error="Export failed")
 
-        with patch(
-            "ai_designer.api.routes.design.get_cad_exporter"
-        ) as mock_get_exporter:
-            mock_exporter = Mock()
-            mock_exporter.outputs_dir = tmp_path
-            mock_exporter.export_multiple_formats = AsyncMock(
-                return_value={"step": fail_result}
-            )
-            mock_get_exporter.return_value = mock_exporter
+        mock_exporter = Mock()
+        mock_exporter.outputs_dir = tmp_path
+        mock_exporter.export_multiple_formats = AsyncMock(
+            return_value={"step": fail_result}
+        )
 
+        with _cad_exporter_override(test_client, mock_exporter):
             response = test_client.get(
                 f"/api/v1/design/{mock_design_state.request_id}/download/step"
             )
@@ -402,25 +400,21 @@ class TestAuditLogging:
             ),
         )
 
-        with patch(
-            "ai_designer.api.routes.design.get_cad_exporter"
-        ) as mock_get_exporter:
+        mock_exporter = Mock()
+        mock_exporter.outputs_dir = tmp_path
+        mock_exporter.export_multiple_formats = AsyncMock(
+            return_value={"step": export_result}
+        )
+
+        with _cad_exporter_override(test_client, mock_exporter):
             with patch(
                 "ai_designer.api.routes.design._log_export_audit_event"
             ) as mock_audit:
-                mock_exporter = Mock()
-                mock_exporter.outputs_dir = tmp_path
-                mock_exporter.export_multiple_formats = AsyncMock(
-                    return_value={"step": export_result}
-                )
-                mock_get_exporter.return_value = mock_exporter
-
                 response = test_client.get(
                     f"/api/v1/design/{mock_design_state.request_id}/export?formats=step"
                 )
 
                 assert response.status_code == status.HTTP_200_OK
-                # Verify audit logging was called
                 mock_audit.assert_called_once()
 
         # Cleanup

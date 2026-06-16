@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from ai_designer.agents.validator import ValidatorAgent
-from ai_designer.core.llm_provider import LLMResponse, UnifiedLLMProvider
+from ai_designer.llm.provider import LLMResponse, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType, DesignRequest
 from ai_designer.schemas.task_graph import TaskGraph, TaskNode
 from ai_designer.schemas.validation import (

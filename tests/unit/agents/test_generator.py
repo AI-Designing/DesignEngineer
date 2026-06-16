@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 
 from ai_designer.agents.generator import GeneratorAgent, ScriptValidationError
-from ai_designer.core.llm_provider import LLMResponse, UnifiedLLMProvider
+from ai_designer.llm.provider import LLMResponse, UnifiedLLMProvider
 from ai_designer.schemas.design_state import AgentType
 from ai_designer.schemas.planner_plan import UnsupportedGeneratorOperation
 from ai_designer.schemas.task_graph import TaskGraph, TaskNode, TaskStatus

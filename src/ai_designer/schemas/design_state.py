@@ -105,6 +105,12 @@ class DesignState(BaseModel):
         description="Intermediate generation artifacts (CAD operations, parameters)",
     )
 
+    # Persisted CAD document (set after successful FreeCAD execution / export prep)
+    fcstd_path: Optional[str] = Field(
+        default=None,
+        description="Path to primary FCStd on disk (used by export endpoints)",
+    )
+
     # Validation from Validator
     validation_results: Optional[Dict[str, Any]] = Field(
         default=None, description="Validation results (geometric, semantic, LLM review)"
